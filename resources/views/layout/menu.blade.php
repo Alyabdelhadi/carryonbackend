@@ -410,6 +410,38 @@
             </li>
 
 
+            {{-- Wallet & Payouts --}}
+            <li class="@if($page == 'wallets' || $page == 'payouts') active open @endif nav-item">
+
+                <a href="#">
+
+                    <i class="fa fa-money"></i>
+
+                    <span class="menu-title" data-i18n="Wallet">Wallet</span>
+
+                </a>
+
+                <ul class="menu-content">
+
+                    <li class="{{ $page == 'payouts' ? 'active' : '' }}">
+                        <a href="{{ Asset('payouts') }}">
+                            <i class="feather icon-circle"></i>
+                            <span class="menu-item">Payout Requests</span>
+                        </a>
+                    </li>
+
+                    <li class="{{ $page == 'wallets' ? 'active' : '' }}">
+                        <a href="{{ Asset('wallets') }}">
+                            <i class="feather icon-circle"></i>
+                            <span class="menu-item">Carrier Wallets</span>
+                        </a>
+                    </li>
+
+                </ul>
+
+            </li>
+
+
             {{-- Settings --}}
             <li
                 class="@if(

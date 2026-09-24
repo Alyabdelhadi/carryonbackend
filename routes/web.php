@@ -24,6 +24,8 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\VersionController;
 use App\Http\Controllers\PaymentMethodController;
 use App\Http\Controllers\AppSettingController;
+use App\Http\Controllers\WalletController;
+use App\Http\Controllers\PayoutRequestController;
 
 
 /*
@@ -227,6 +229,7 @@ Route::get('parcel_order/delete/{id}', [ParcelOrderController::class, 'delete'])
 Route::get('parcel_order/notify/{id}', [ParcelOrderController::class, 'notify'])->name('parcel.notify');
 Route::get('/parcel_order/{id}/edit', [ParcelOrderController::class, 'edit'])->name('parcel.edit');
 Route::put('/parcel_order/{id}', [ParcelOrderController::class, 'update'])->name('parcel.update');
+Route::post('/parcel_order/{id}/refund', [ParcelOrderController::class, 'refund'])->name('parcel.refund');
 
 /*
 |-----------------------------------------
@@ -260,6 +263,14 @@ Route::prefix('emails')->group(function () {
 
 
 
+
+// Carrier wallets and payout requests
+Route::get('wallets', [WalletController::class, 'index'])->name('wallets.index');
+Route::get('wallets/{id}', [WalletController::class, 'show'])->name('wallets.show');
+Route::post('wallets/{id}/adjust', [WalletController::class, 'adjust'])->name('wallets.adjust');
+Route::get('payouts', [PayoutRequestController::class, 'index'])->name('payouts.index');
+Route::post('payouts/{id}/paid', [PayoutRequestController::class, 'paid'])->name('payouts.paid');
+Route::post('payouts/{id}/reject', [PayoutRequestController::class, 'reject'])->name('payouts.reject');
 
 Route::get('app-settings', [AppSettingController::class, 'edit'])->name('app-settings.edit');
 Route::post('app-settings', [AppSettingController::class, 'update'])->name('app-settings.update');

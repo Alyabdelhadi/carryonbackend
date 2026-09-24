@@ -4,264 +4,96 @@ namespace App\Http\Controllers;
 
 use App\Models\ParcelOrder;
 use App\Models\PaymentMethod;
-
+use App\Services\PaymentStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-
+use Stripe\Exception\SignatureVerificationException;
 use Stripe\Webhook;
 use UnexpectedValueException;
-use Stripe\Exception\SignatureVerificationException;
 
+/**
+ * POST api/payments/stripe/webhook. Stripe tells us when the sender's
+ * PaymentIntent succeeded or failed; the order's payment_status follows.
+ * Works even when the admin has since disabled Stripe, so in-flight
+ * payments still complete.
+ */
 class StripeWebhookController extends Controller
 {
-    public function handle(
-        Request $request
-    ) {
-        /*
-         * Don't require Stripe to currently
-         * be enabled.
-         *
-         * A previously-created payment may
-         * still complete.
-         */
-        $stripeMethod =
-            PaymentMethod::where(
-                'code',
-                'stripe'
-            )
-            ->first();
+    public function __construct(private PaymentStatusService $status)
+    {
+    }
 
-
-        if (
-            !$stripeMethod
-            ||
-            empty(
-                $stripeMethod->webhook_secret
-            )
-        ) {
-            Log::error(
-                'Stripe webhook secret is missing.'
-            );
-
-            return response()->json([
-                'message' =>
-                    'Webhook is not configured.'
-            ], 500);
+    public function handle(Request $request)
+    {
+        $stripeMethod = PaymentMethod::where('code', 'stripe')->first();
+        if (!$stripeMethod || empty($stripeMethod->webhook_secret)) {
+            Log::error('Stripe webhook secret is missing.');
+            return response()->json(['message' => 'Webhook is not configured.'], 500);
         }
 
-
-        /*
-         * IMPORTANT:
-         * Stripe requires the raw body.
-         */
-        $payload =
-            $request->getContent();
-
-        $signature =
-            $request->header(
-                'Stripe-Signature'
-            );
-
-
+        $signature = $request->header('Stripe-Signature');
         if (!$signature) {
-            return response()->json([
-                'message' =>
-                    'Stripe signature missing.'
-            ], 400);
+            return response()->json(['message' => 'Stripe signature missing.'], 400);
         }
-
 
         try {
-
-            $event =
-                Webhook::constructEvent(
-                    $payload,
-                    $signature,
-                    $stripeMethod
-                        ->webhook_secret
-                );
-
-        } catch (
-            UnexpectedValueException $e
-        ) {
-
-            Log::warning(
-                'Invalid Stripe webhook payload.'
-            );
-
-            return response()->json([
-                'message' =>
-                    'Invalid payload.'
-            ], 400);
-
-        } catch (
-            SignatureVerificationException $e
-        ) {
-
-            Log::warning(
-                'Invalid Stripe webhook signature.'
-            );
-
-            return response()->json([
-                'message' =>
-                    'Invalid signature.'
-            ], 400);
+            // Stripe signs the raw body.
+            $event = Webhook::constructEvent($request->getContent(), $signature, $stripeMethod->webhook_secret);
+        } catch (UnexpectedValueException $e) {
+            Log::warning('Invalid Stripe webhook payload.');
+            return response()->json(['message' => 'Invalid payload.'], 400);
+        } catch (SignatureVerificationException $e) {
+            Log::warning('Invalid Stripe webhook signature.');
+            return response()->json(['message' => 'Invalid signature.'], 400);
         }
-
 
         switch ($event->type) {
-
             case 'payment_intent.succeeded':
-
-                $this->paymentSucceeded(
-                    $event->data->object
-                );
-
+                $this->paymentSucceeded($event->data->object);
                 break;
-
-
             case 'payment_intent.payment_failed':
-
-                $this->paymentFailed(
-                    $event->data->object
-                );
-
+                $this->paymentFailed($event->data->object);
                 break;
-
-
             case 'payment_intent.canceled':
-
-                $this->paymentCancelled(
-                    $event->data->object
-                );
-
+                $this->paymentCancelled($event->data->object);
                 break;
         }
 
-
-        return response()->json([
-            'received' => true
-        ]);
+        return response()->json(['received' => true]);
     }
 
-
-    private function paymentSucceeded(
-        $paymentIntent
-    ): void
+    private function orderFor($paymentIntent): ?ParcelOrder
     {
-        $order =
-            ParcelOrder::where(
-                'payment_reference',
-                $paymentIntent->id
-            )
-            ->first();
-
-
-        if (!$order) {
-
-            Log::warning(
-                'Stripe payment succeeded but order not found.',
-                [
-                    'payment_intent' =>
-                        $paymentIntent->id,
-                ]
-            );
-
-            return;
+        $order = ParcelOrder::where('payment_reference', $paymentIntent->id)->first();
+        if (!$order && !empty($paymentIntent->metadata->parcel_order_id)) {
+            $order = ParcelOrder::find((int) $paymentIntent->metadata->parcel_order_id);
         }
-
-
-        /*
-         * Don't process successful
-         * payment twice.
-         */
-        if (
-            $order->payment_status === 'paid'
-        ) {
-            return;
-        }
-
-
-        $order->payment_status =
-            'paid';
-
-        $order->paid_at =
-            now();
-
-        $order->save();
-
-
-        Log::info(
-            'Stripe payment completed.',
-            [
-                'order_id' =>
-                    $order->id,
-
-                'payment_intent' =>
-                    $paymentIntent->id,
-            ]
-        );
+        return $order;
     }
 
-
-    private function paymentFailed(
-        $paymentIntent
-    ): void
+    private function paymentSucceeded($paymentIntent): void
     {
-        $order =
-            ParcelOrder::where(
-                'payment_reference',
-                $paymentIntent->id
-            )
-            ->first();
-
-
+        $order = $this->orderFor($paymentIntent);
         if (!$order) {
+            Log::warning('Stripe payment succeeded but order not found.', ['payment_intent' => $paymentIntent->id]);
             return;
         }
-
-
-        if (
-            $order->payment_status === 'paid'
-        ) {
-            return;
-        }
-
-
-        $order->payment_status =
-            'failed';
-
-        $order->save();
+        $this->status->markPaid($order, $paymentIntent->id);
     }
 
-
-    private function paymentCancelled(
-        $paymentIntent
-    ): void
+    private function paymentFailed($paymentIntent): void
     {
-        $order =
-            ParcelOrder::where(
-                'payment_reference',
-                $paymentIntent->id
-            )
-            ->first();
-
-
-        if (!$order) {
-            return;
+        $order = $this->orderFor($paymentIntent);
+        if ($order) {
+            $this->status->markFailed($order);
         }
+    }
 
-
-        if (
-            $order->payment_status === 'paid'
-        ) {
-            return;
+    private function paymentCancelled($paymentIntent): void
+    {
+        $order = $this->orderFor($paymentIntent);
+        if ($order) {
+            $this->status->markCancelled($order);
         }
-
-
-        $order->payment_status =
-            'cancelled';
-
-        $order->save();
     }
 }

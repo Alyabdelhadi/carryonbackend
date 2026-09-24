@@ -89,7 +89,7 @@ td
 
 <tr>
 <td width="20%"><b>Reward</b></td>
-<td width="30%">${{ $data->amount }}</td>
+<td width="30%">${{ $data->amount }} <small class="text-muted">({{ $data->paymentLabel() }})</small></td>
 </tr>
 
 

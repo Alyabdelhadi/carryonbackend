@@ -162,9 +162,40 @@ class ParcelOrderController extends Controller
         $order->order_date = (isset($data['date_to']) && !in_array($data['date_to'], $excluded_dates)) ? $data['date_to'] : null;
     
         $order->status  = $data['status'];
+
+        // Card orders not yet paid follow the edited reward.
+        if ($order->isOnlinePayment() && !$order->isPaid()) {
+            if (preg_match('/\d+(?:[.,]\d+)?/', (string) $order->amount, $m)) {
+                $order->payment_amount = round((float) str_replace(',', '.', $m[0]), 2);
+            }
+            $order->applyCommission();
+        }
         $order->save();
     
         return redirect()->route('parcel.edit', $order->id)->with('success', 'Package updated successfully!');
+    }
+
+    /** Admin: refund a paid card order (e.g. cancelled after pickup, or a retry after a Stripe outage). */
+    public function refund($id)
+    {
+        $order = ParcelOrder::findOrFail($id);
+        if (!$order->isOnlinePayment() || !in_array($order->payment_status, ['paid', 'refund_pending'], true)) {
+            return back()->with('error', 'This package has no card payment to refund.');
+        }
+        if ($order->payment_status === 'refund_pending') {
+            $order->payment_status = 'paid';
+        }
+        $result = $order->refundPayment();
+        if ($result !== 'refunded') {
+            return back()->with('error', 'Stripe refused the refund; check the Laravel log and try again.');
+        }
+
+        $template = NotificationTemplate::where('event', 'payment_refunded')->first();
+        $title = $template ? TemplateService::parse($template->title, $order) : 'Refund Issued';
+        $body = $template ? TemplateService::parse($template->body, $order) : 'Your payment for package #' . $order->id . ' has been refunded.';
+        app(FirebaseService::class)->sendToUser($order->user_id, $title, $body);
+
+        return back()->with('success', 'Refund sent to Stripe (' . $order->refund_reference . ').');
     }
     
     public function notify($id)

@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ApiController;
 use App\Http\Controllers\StripeWebhookController;
 use App\Http\Controllers\AppSettingController;
+use App\Http\Controllers\WalletApiController;
 
 /*
 |--------------------------------------------------------------------------
@@ -86,6 +87,7 @@ Route::post(
 
 Route::get('/appVersions', [ApiController::class, 'getAppVersions']);
 Route::get('/appSettings', [AppSettingController::class, 'api']);
+Route::get('/stats', [AppSettingController::class, 'stats']);
 
 Route::get('/analytics', [ApiController::class, 'getAnalytics']);
 
@@ -99,7 +101,16 @@ Route::post(
     [ApiController::class, 'createStripePayment']
 );
 
+Route::post('/payments/stripe/sync', [ApiController::class, 'syncStripePayment']);
+
 Route::post(
     '/payments/stripe/webhook',
     [StripeWebhookController::class, 'handle']
 );
+
+// Carrier wallet and payouts (card-paid orders only)
+Route::get('/wallet', [WalletApiController::class, 'show']);
+Route::get('/wallet/transactions', [WalletApiController::class, 'transactions']);
+Route::get('/payouts', [WalletApiController::class, 'payouts']);
+Route::post('/payouts', [WalletApiController::class, 'requestPayout']);
+Route::post('/payouts/{id}/cancel', [WalletApiController::class, 'cancelPayout']);

@@ -13,8 +13,22 @@ class AppSettingController extends Controller
         $page = 'app-settings';
         $definitions = AppSetting::definitions();
         $values = AppSetting::allBools();
+        $statDefinitions = AppSetting::statDefinitions();
+        $statValues = [];
+        foreach ($statDefinitions as $key => $definition) {
+            $statValues[$key] = AppSetting::getInt($key);
+        }
+        $statComputed = \App\Services\HomeStatsService::computed();
+        $numberDefinitions = AppSetting::numberDefinitions();
+        $numberValues = AppSetting::allNumbers();
+        $payoutMethodsRaw = optional(AppSetting::find(AppSetting::PAYOUT_METHODS))->value
+            ?? implode("\n", array_map(fn ($m) => $m['code'] . '|' . $m['name'], AppSetting::payoutMethods()));
+        $stripeEnabled = \App\Services\StripePaymentService::isEnabled();
 
-        return view('settings.app', compact('definitions', 'values', 'page'));
+        return view('settings.app', compact(
+            'definitions', 'values', 'page', 'statDefinitions', 'statValues', 'statComputed',
+            'numberDefinitions', 'numberValues', 'payoutMethodsRaw', 'stripeEnabled'
+        ));
     }
 
     /** Admin: save the switches (unchecked boxes are absent from the request). */
@@ -23,6 +37,16 @@ class AppSettingController extends Controller
         foreach (AppSetting::definitions() as $key => $definition) {
             AppSetting::setBool($key, $request->boolean($key));
         }
+        foreach (AppSetting::statDefinitions() as $key => $definition) {
+            AppSetting::setNullableInt($key, $request->input($key));
+        }
+        foreach (AppSetting::numberDefinitions() as $key => $definition) {
+            AppSetting::setNumber($key, $request->input($key));
+        }
+        AppSetting::updateOrCreate(
+            ['key' => AppSetting::PAYOUT_METHODS],
+            ['value' => trim((string) $request->input(AppSetting::PAYOUT_METHODS))]
+        );
 
         return redirect()
             ->route('app-settings.edit')
@@ -32,6 +56,15 @@ class AppSettingController extends Controller
     /** API: what the mobile app needs to know. */
     public function api()
     {
-        return response()->json(AppSetting::allBools());
+        return response()->json(array_merge(
+            AppSetting::allBools(),
+            ['payments' => WalletApiController::rules()]
+        ));
+    }
+
+    /** API: the home-screen counters. */
+    public function stats()
+    {
+        return response()->json(\App\Services\HomeStatsService::stats());
     }
 }

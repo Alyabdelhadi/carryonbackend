@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\AppSetting;
+use App\Models\PaymentMethod;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\Log;
 use Exception;
@@ -67,17 +69,20 @@ class ParcelOrder extends Model
             $parcelOrder->s_apartment    = $data['s_address']['apartment'];
             $parcelOrder->s_notes        = $data['s_address']['notes'] ?? null;
     
-            $parcelOrder->payment_method = $data['payment_method'];
+            $parcelOrder->payment_method = self::paymentMethodCode($data['payment_method'] ?? null);
             
-            $parcelOrder->payment_amount = round((float) $data['payment_amount'], 2);
+            $parcelOrder->payment_amount = round((float) ($data['payment_amount'] ?? 0), 2);
             
-            $parcelOrder->payment_currency = strtoupper($data['payment_currency']);
+            $parcelOrder->payment_currency = strtoupper($data['payment_currency'] ?? 'USD');
             
-            $parcelOrder->payment_status = 'pending';
+            // Card orders are paid once a carrier accepts; cash never goes through us.
+            $parcelOrder->payment_status = $parcelOrder->payment_method === 'stripe' ? 'unpaid' : 'cash';
             
             $parcelOrder->payment_reference = null;
             
             $parcelOrder->paid_at = null;
+
+            $parcelOrder->applyCommission();
             
             $parcelOrder->notes = $data['notes'] ?? null;
             
@@ -200,6 +205,87 @@ class ParcelOrder extends Model
     
         return $earthRadiusKm * (2 * atan2(sqrt($a), sqrt(1 - $a)));
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Online payment helpers
+    |--------------------------------------------------------------------------
+    */
+
+    /** The app historically sent the payment_methods.id; store the code. */
+    public static function paymentMethodCode($value): string
+    {
+        if ($value === null || $value === '') {
+            return 'cash_on_delivery';
+        }
+        if (is_numeric($value)) {
+            $method = PaymentMethod::find((int) $value);
+            return $method ? $method->code : 'cash_on_delivery';
+        }
+        return (string) $value;
+    }
+
+    public function isOnlinePayment(): bool
+    {
+        return $this->payment_method === 'stripe';
+    }
+
+    public function isPaid(): bool
+    {
+        return $this->payment_status === 'paid';
+    }
+
+    /** Card orders block pickup until the sender has paid. */
+    public function awaitingPayment(): bool
+    {
+        return $this->isOnlinePayment() && !$this->isPaid();
+    }
+
+    /** CarryOn's cut and the carrier's share, from the commission setting. */
+    public function applyCommission(): void
+    {
+        if (!$this->isOnlinePayment() || (float) $this->payment_amount <= 0) {
+            $this->commission_amount = null;
+            $this->carrier_earning = null;
+            return;
+        }
+        $percent = AppSetting::getFloat(AppSetting::COMMISSION_PERCENT);
+        $commission = round((float) $this->payment_amount * $percent / 100, 2);
+        $this->commission_amount = $commission;
+        $this->carrier_earning = round((float) $this->payment_amount - $commission, 2);
+    }
+
+    /** Human label used by the admin pages. */
+    public function paymentLabel(): string
+    {
+        if (!$this->isOnlinePayment()) {
+            return 'Cash';
+        }
+        return ucfirst(str_replace('_', ' ', $this->payment_status ?? 'unpaid'));
+    }
+
+    /**
+     * Refund a paid card order in full. Returns the new payment_status:
+     * `refunded`, or `refund_pending` when Stripe could not be reached so the
+     * admin can retry from the order page.
+     */
+    public function refundPayment(): string
+    {
+        if (!$this->isOnlinePayment() || !$this->isPaid()) {
+            return $this->payment_status ?? 'unpaid';
+        }
+        try {
+            $refund = (new \App\Services\StripePaymentService(false))->refund($this);
+            $this->payment_status = 'refunded';
+            $this->refund_reference = $refund->id;
+            $this->refunded_at = now();
+        } catch (\Throwable $e) {
+            \Log::error('Stripe refund failed for order ' . $this->id . ': ' . $e->getMessage());
+            $this->payment_status = 'refund_pending';
+        }
+        $this->save();
+        return $this->payment_status;
+    }
     
     public function extendDate($data)
     {
@@ -266,6 +352,10 @@ class ParcelOrder extends Model
             if ($parcelOrder) {
                 $parcelOrder->carrier_id = $carrierId;
                 $parcelOrder->status = "Assigned";
+                if ($parcelOrder->awaitingPayment()) {
+                    $hours = (int) AppSetting::getFloat(AppSetting::PAYMENT_DEADLINE_HOURS);
+                    $parcelOrder->payment_deadline_at = now()->addHours($hours);
+                }
                 $parcelOrder->save();
     
                 $message = "done";
@@ -307,6 +397,7 @@ class ParcelOrder extends Model
                     // Change the status of the order to 'Unassigned' and remove the carrier id
                     $parcelOrder->status = "Unassigned";
                     $parcelOrder->carrier_id = NULL;
+                    $parcelOrder->payment_deadline_at = null;
                     $parcelOrder->save();
         
                     $message = "done";
@@ -346,6 +437,10 @@ class ParcelOrder extends Model
                 
                 // Check if the user is the carrier of this order
                 if ($user->id == $parcelOrder->carrier_id) {
+                    
+                    if ($parcelOrder->awaitingPayment()) {
+                        return ['message' => 'The sender has not paid for this package yet.'];
+                    }
                     
                     // Change the status of the order to 'Picked'
                     $parcelOrder->status = "Picked";
@@ -406,10 +501,18 @@ class ParcelOrder extends Model
         // Decimal trees saved for this order; do NOT fallback
         $treesForThisOrder = $order->trees_saved; // decimal or null
     
-        DB::transaction(function () use ($order, $creatorId, $treesForThisOrder) {
+        if ($order->awaitingPayment()) {
+            return ['message' => 'The sender has not paid for this package yet.'];
+        }
+
+        $earning = null;
+        DB::transaction(function () use ($order, $creatorId, $treesForThisOrder, &$earning) {
             // 1) Mark the order as delivered
             $order->status = 'Delivered';
             $order->save();
+
+            // 1b) Card orders: the carrier's share lands in their wallet
+            $earning = (new \App\Services\WalletService)->creditEarning($order);
     
             // 2) Increment creator's total only if > 0 and not null
             if (!is_null($treesForThisOrder) && (float) $treesForThisOrder > 0) {
@@ -426,7 +529,8 @@ class ParcelOrder extends Model
     
         return [
             'message' => 'done',
-            'order'   => $order
+            'order'   => $order,
+            'earning' => $earning,
         ];
     }
     
@@ -447,6 +551,10 @@ class ParcelOrder extends Model
                 
                 // Check if the user is the carrier of this order
                 if ($user->id == $parcelOrder->carrier_id) {
+                    
+                    if ($parcelOrder->awaitingPayment()) {
+                        return ['message' => 'The sender has not paid for this package yet.'];
+                    }
                     
                     // Change the status of the order to 'Transit'
                     $parcelOrder->status = "Transit";
@@ -490,13 +598,22 @@ class ParcelOrder extends Model
                 // Check if the user is the creator of this order
                 if ($user->id == $parcelOrder->user_id) {
                     
+                    $refund = null;
+                    $wasPickedUp = in_array($parcelOrder->status, ['Picked', 'Transit', 'Delivered'], true);
+
                     // Change the status of the order to 'Cancelled'
                     $parcelOrder->status = "Cancelled";
+                    $parcelOrder->payment_deadline_at = null;
                     $parcelOrder->save();
-                    
+
+                    // Paid by card and never picked up: money goes straight back.
+                    // After pickup the admin decides from the order page.
+                    if ($parcelOrder->isOnlinePayment() && $parcelOrder->isPaid() && !$wasPickedUp) {
+                        $refund = $parcelOrder->refundPayment();
+                    }
         
                     $message = "done";
-                    $response = ['message' => $message, 'order' => $parcelOrder];
+                    $response = ['message' => $message, 'order' => $parcelOrder, 'refund' => $refund];
                     
                 } else {
                     $response = ['message' => "User ID does not match the user associated with the parcel order"];

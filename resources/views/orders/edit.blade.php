@@ -210,6 +210,41 @@
       </form>
     </div>
   </div>
+
+  <div class="card mt-3">
+    <div class="card-header">Payment</div>
+    <div class="card-body">
+      @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
+      @if(session('error'))<div class="alert alert-danger">{{ session('error') }}</div>@endif
+      <div class="row">
+        <div class="col-md-3"><small class="text-muted">Method</small><br><strong>{{ $order->isOnlinePayment() ? 'Card (Stripe)' : 'Cash on delivery' }}</strong></div>
+        <div class="col-md-3"><small class="text-muted">Status</small><br><strong>{{ $order->paymentLabel() }}</strong></div>
+        @if($order->isOnlinePayment())
+          <div class="col-md-3"><small class="text-muted">Charged</small><br><strong>{{ number_format($order->payment_amount, 2) }} {{ $order->payment_currency }}</strong></div>
+          <div class="col-md-3"><small class="text-muted">Commission / carrier</small><br><strong>{{ number_format($order->commission_amount, 2) }} / {{ number_format($order->carrier_earning, 2) }}</strong></div>
+          <div class="col-md-12 mt-2">
+            <small class="text-muted">
+              @if($order->payment_reference) Stripe: {{ $order->payment_reference }} @endif
+              @if($order->paid_at) · paid {{ \Carbon\Carbon::parse($order->paid_at)->format('Y-m-d H:i') }} @endif
+              @if($order->payment_deadline_at) · pay before {{ \Carbon\Carbon::parse($order->payment_deadline_at)->format('Y-m-d H:i') }} @endif
+              @if($order->refund_reference) · refund {{ $order->refund_reference }} on {{ \Carbon\Carbon::parse($order->refunded_at)->format('Y-m-d H:i') }} @endif
+            </small>
+          </div>
+          @if(in_array($order->payment_status, ['paid', 'refund_pending']))
+            <div class="col-md-12 mt-3">
+              <form method="POST" action="{{ route('parcel.refund', $order->id) }}" onsubmit="return confirm('Refund {{ number_format($order->payment_amount, 2) }} {{ $order->payment_currency }} to the sender through Stripe?')">
+                @csrf
+                <button type="submit" class="btn btn-outline-danger">Refund sender</button>
+                @if($order->status === 'Delivered')
+                  <small class="text-muted ml-2">The carrier's wallet was already credited; adjust it from the Wallets page if needed.</small>
+                @endif
+              </form>
+            </div>
+          @endif
+        @endif
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- JS -->

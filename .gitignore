@@ -22,3 +22,4 @@ yarn-error.log
 /storage/firebase/*.json
 /public/upload
 /local-dev/*.log
+.env.testing

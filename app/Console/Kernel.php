@@ -13,6 +13,7 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule): void
     {
         $schedule->command('parcel-orders:expire')->dailyAt('00:00')->timezone('Asia/Beirut'); // Midnight
+        $schedule->command('orders:release-unpaid')->hourly();
     }
 
     /**

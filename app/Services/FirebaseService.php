@@ -22,28 +22,33 @@ class FirebaseService
         $this->messaging = $factory->createMessaging();
     }
 
-    public function sendToTopic($topic, $title, $body)
+    /** @param array $data optional key/value strings the app reads on tap (e.g. order_id) */
+    public function sendToTopic($topic, $title, $body, array $data = [])
     {
         if ($this->messaging === null) {
             Log::info("Push disabled: skipped topic '{$topic}' — {$title}: {$body}");
             return null;
         }
 
-        $message = CloudMessage::fromArray([
+        $payload = [
             'topic' => $topic,
             'notification' => [
                 'title' => $title,
                 'body'  => $body,
             ],
-        ]);
+        ];
+        if (!empty($data)) {
+            $payload['data'] = array_map('strval', $data);
+        }
+        $message = CloudMessage::fromArray($payload);
 
         $response = $this->messaging->send($message);
         return $response;
     }
 
-    public function sendToUser($userId, $title, $body)
+    public function sendToUser($userId, $title, $body, array $data = [])
     {
         $topic = 'user_' . $userId; // Firebase Topic for user
-        return $this->sendToTopic($topic, $title, $body);
+        return $this->sendToTopic($topic, $title, $body, $data);
     }
 }

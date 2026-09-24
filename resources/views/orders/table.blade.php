@@ -41,7 +41,7 @@
 <td>{{ $row->r_phone }}</td>
 <td>{{ $row->cate }}</td>
 <td>{{ $row->value }}</td>
-<td>${{ $row->amount }}</td>
+<td>${{ $row->amount }}<br><small class="text-muted">{{ $row->paymentLabel() }}</small></td>
 <td>{{ $row->weight }}</td>
 <td>{{ $row->user_name }}</td>
 <td>{{ $row->carrier_name }}</td>

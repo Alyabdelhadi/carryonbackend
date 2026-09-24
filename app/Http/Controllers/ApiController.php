@@ -32,6 +32,7 @@ use App\Models\User;
 use App\Models\ParcelOrderView;
 use App\Models\PaymentMethod;
 use App\Services\StripePaymentService;
+use App\Services\PaymentStatusService;
 
 class ApiController extends Controller
 {
@@ -165,9 +166,15 @@ class ApiController extends Controller
         //         'required|numeric|min:0.01',
         // ]);
         
-        $paymentMethod = PaymentMethod::where('id', $request->payment_method)
-        ->where('enabled', true)
-        ->first();
+        $requested = (string) $request->input('payment_method', '1');
+        $paymentMethod = PaymentMethod::where('enabled', true)
+            ->where(function ($q) use ($requested) {
+                $q->where('code', $requested);
+                if (is_numeric($requested)) {
+                    $q->orWhere('id', (int) $requested);
+                }
+            })
+            ->first();
 
         if (!$paymentMethod) {
             return response()->json([
@@ -178,6 +185,9 @@ class ApiController extends Controller
         $res = new ParcelOrder();
         
         $data = $request->all();
+        
+        // Stored as the code ("stripe"), whatever the app sent.
+        $data['payment_method'] = $paymentMethod->code;
         
         $data['payment_currency'] = strtoupper($paymentMethod->currency);
         
@@ -203,6 +213,13 @@ class ApiController extends Controller
         } else {
             $data['payment_amount'] = 0;
         }
+
+        // "Free" / "Other" rewards cannot be charged to a card.
+        if ($paymentMethod->code === 'stripe' && $data['payment_amount'] <= 0) {
+            return response()->json([
+                'message' => 'Please enter the reward as a number to pay by card.'
+            ], 422);
+        }
         
         $responseData = $res->create($data);
     
@@ -224,7 +241,7 @@ class ApiController extends Controller
             ? TemplateService::parse($templates['package_created']->body, $parcelOrder) 
             : "Your package has been created.";
     
-        $this->firebaseService->sendToUser($parcelOrder->user_id, $userTitle, $userBody);
+        $this->firebaseService->sendToUser($parcelOrder->user_id, $userTitle, $userBody, ['order_id' => $parcelOrder->id]);
     
         // Find matching trips
         $today = Carbon::today()->toDateString();
@@ -304,7 +321,12 @@ class ApiController extends Controller
             }
     
             // Send notification using Firebase service
-            $this->firebaseService->sendToUser($parcelOrder['user_id'], $title, $body);
+            $this->firebaseService->sendToUser($parcelOrder['user_id'], $title, $body, ['order_id' => $parcelOrder->id]);
+
+            if ($parcelOrder->awaitingPayment()) {
+                $this->notifyEvent('payment_required', $parcelOrder, $parcelOrder->user_id,
+                    'Payment Required', 'A carrier accepted your package. Pay now to confirm the delivery.');
+            }
         }
     
         return $response;
@@ -335,7 +357,7 @@ class ApiController extends Controller
             ? TemplateService::parse($templates['package_dropped']->body, $parcelOrder) 
             : "Your package has been dropped.";
     
-        $this->firebaseService->sendToUser($parcelOrder->user_id, $userTitle, $userBody);
+        $this->firebaseService->sendToUser($parcelOrder->user_id, $userTitle, $userBody, ['order_id' => $parcelOrder->id]);
     
         // Find matching trips
         $today = Carbon::today()->toDateString();
@@ -415,7 +437,7 @@ class ApiController extends Controller
             ? TemplateService::parse($templates['package_extended']->body, $parcelOrder) 
             : "Your package has been extend.";
     
-        $this->firebaseService->sendToUser($parcelOrder->user_id, $userTitle, $userBody);
+        $this->firebaseService->sendToUser($parcelOrder->user_id, $userTitle, $userBody, ['order_id' => $parcelOrder->id]);
     
         // Find matching trips
         $today = Carbon::today()->toDateString();
@@ -498,7 +520,7 @@ class ApiController extends Controller
             }
     
             // Send notification using Firebase service
-            $this->firebaseService->sendToUser($parcelOrder['user_id'], $title, $body);
+            $this->firebaseService->sendToUser($parcelOrder['user_id'], $title, $body, ['order_id' => $parcelOrder->id]);
         }
     
         return $response;
@@ -529,7 +551,12 @@ class ApiController extends Controller
             }
     
             // Send notification using Firebase service
-            $this->firebaseService->sendToUser($parcelOrder['user_id'], $title, $body);
+            $this->firebaseService->sendToUser($parcelOrder['user_id'], $title, $body, ['order_id' => $parcelOrder->id]);
+
+            if (!empty($responseData['earning'])) {
+                $this->notifyEvent('earning_credited', $parcelOrder, $parcelOrder->carrier_id,
+                    'Earning Added', 'Your share for package #' . $parcelOrder->id . ' was added to your wallet.');
+            }
         }
     
         return $response;
@@ -560,7 +587,7 @@ class ApiController extends Controller
             }
     
             // Send notification using Firebase service
-            $this->firebaseService->sendToUser($parcelOrder['user_id'], $title, $body);
+            $this->firebaseService->sendToUser($parcelOrder['user_id'], $title, $body, ['order_id' => $parcelOrder->id]);
         }
     
         return $response;
@@ -591,12 +618,29 @@ class ApiController extends Controller
             }
     
             // Send notification using Firebase service
-            $this->firebaseService->sendToUser($parcelOrder['user_id'], $title, $body);
+            $this->firebaseService->sendToUser($parcelOrder['user_id'], $title, $body, ['order_id' => $parcelOrder->id]);
+
+            if (($responseData['refund'] ?? null) === 'refunded') {
+                $this->notifyEvent('payment_refunded', $parcelOrder, $parcelOrder->user_id,
+                    'Refund Issued', 'Your payment for package #' . $parcelOrder->id . ' has been refunded.');
+            }
         }
     
         return $response;
     }
 	
+    /** Push a templated event to one app user, with a fallback when the admin deleted the template. */
+    private function notifyEvent(string $event, ParcelOrder $order, $userId, string $fallbackTitle, string $fallbackBody, array $extra = []): void
+    {
+        if (!$userId) {
+            return;
+        }
+        $template = NotificationTemplate::where('event', $event)->first();
+        $title = $template ? TemplateService::parse($template->title, $order, $extra) : $fallbackTitle;
+        $body = $template ? TemplateService::parse($template->body, $order, $extra) : $fallbackBody;
+        $this->firebaseService->sendToUser($userId, $title, $body, ['order_id' => $order->id, 'event' => $event]);
+    }
+
 	public function getParcelOrderById(Request $Request)
 	{
 		$res = new ParcelOrder;
@@ -979,156 +1023,87 @@ class ApiController extends Controller
     }
     
     
-    public function createStripePayment(
-            Request $request,
-            StripePaymentService $stripeService
-        ) {
-            $request->validate([
-                'order_id' =>
-                    'required|integer',
-        
-                'user_id' =>
-                    'required|integer',
+    /**
+     * The sender pays a card order after a carrier accepted it. Returns the
+     * PaymentIntent client secret for the Stripe payment sheet; calling it
+     * again returns the same intent while it is still open.
+     */
+    public function createStripePayment(Request $request)
+    {
+        $request->validate([
+            'order_id' => 'required|integer',
+            'user_id' => 'required|integer',
+        ]);
+
+        $order = ParcelOrder::where('id', $request->order_id)
+            ->where('user_id', $request->user_id)
+            ->first();
+
+        if (!$order) {
+            return response()->json(['message' => 'Order not found.'], 404);
+        }
+        if (!$order->isOnlinePayment()) {
+            return response()->json(['message' => 'This order is not configured for card payment.'], 422);
+        }
+        if ($order->isPaid()) {
+            return response()->json(['message' => 'Order is already paid.'], 422);
+        }
+        if ($order->status !== 'Assigned') {
+            return response()->json(['message' => 'Payment opens once a carrier accepts your package.'], 422);
+        }
+        if ((float) $order->payment_amount <= 0) {
+            return response()->json(['message' => 'Invalid payment amount.'], 422);
+        }
+        if (!StripePaymentService::isEnabled()) {
+            return response()->json(['message' => 'Card payment is currently unavailable.'], 422);
+        }
+
+        try {
+            $stripe = new StripePaymentService();
+            $paymentIntent = $stripe->paymentIntentFor($order);
+
+            $order->payment_reference = $paymentIntent->id;
+            $order->payment_status = 'processing';
+            $order->save();
+
+            return response()->json([
+                'message' => 'done',
+                'client_secret' => $paymentIntent->client_secret,
+                'payment_intent_id' => $paymentIntent->id,
+                'publishable_key' => $stripe->publishableKey(),
+                'payment_amount' => $order->payment_amount,
+                'payment_currency' => $order->payment_currency,
             ]);
-        
-            $order = ParcelOrder::where(
-                    'id',
-                    $request->order_id
-                )
-                ->where(
-                    'user_id',
-                    $request->user_id
-                )
-                ->first();
-        
-            if (!$order) {
-                return response()->json([
-                    'message' =>
-                        'Order not found.'
-                ], 404);
-            }
-        
-        
-            if (
-                $order->payment_method !== 'stripe'
-            ) {
-                return response()->json([
-                    'message' =>
-                        'This order is not configured for Stripe payment.'
-                ], 422);
-            }
-        
-        
-            if (
-                $order->payment_status === 'paid'
-            ) {
-                return response()->json([
-                    'message' =>
-                        'Order is already paid.'
-                ], 422);
-            }
-        
-        
-            if (
-                $order->payment_status === 'processing'
-                &&
-                !empty($order->payment_reference)
-            ) {
-                return response()->json([
-                    'message' =>
-                        'A payment is already in progress for this order.'
-                ], 422);
-            }
-        
-        
-            if (
-                empty($order->payment_amount)
-                ||
-                (float) $order->payment_amount <= 0
-            ) {
-                return response()->json([
-                    'message' =>
-                        'Invalid payment amount.'
-                ], 422);
-            }
-        
-        
-            $stripeMethod =
-                PaymentMethod::where(
-                    'code',
-                    'stripe'
-                )
-                ->where(
-                    'enabled',
-                    true
-                )
-                ->first();
-        
-            if (!$stripeMethod) {
-                return response()->json([
-                    'message' =>
-                        'Stripe payment is currently unavailable.'
-                ], 422);
-            }
-        
-        
+        } catch (\Throwable $e) {
+            Log::error('Stripe PaymentIntent creation failed', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json(['message' => 'Unable to start the card payment.'], 500);
+        }
+    }
+
+    /**
+     * Called by the app right after the Stripe sheet closes: reads the
+     * intent from Stripe and updates the order without waiting for the
+     * webhook. Returns the fresh order.
+     */
+    public function syncStripePayment(Request $request, PaymentStatusService $status)
+    {
+        $request->validate(['order_id' => 'required|integer', 'user_id' => 'required|integer']);
+        $order = ParcelOrder::where('id', $request->order_id)->where('user_id', $request->user_id)->first();
+        if (!$order) {
+            return response()->json(['message' => 'Order not found.'], 404);
+        }
+        if (!$order->isPaid() && !empty($order->payment_reference)) {
             try {
-        
-                $paymentIntent =
-                    $stripeService
-                        ->createPaymentIntent(
-                            $order
-                        );
-        
-        
-                $order->payment_reference =
-                    $paymentIntent->id;
-        
-                $order->payment_status =
-                    'processing';
-        
-                $order->save();
-        
-        
-                return response()->json([
-                    'message' =>
-                        'Payment created successfully.',
-        
-                    'client_secret' =>
-                        $paymentIntent->client_secret,
-        
-                    'payment_intent_id' =>
-                        $paymentIntent->id,
-        
-                    'publishable_key' =>
-                        $stripeMethod->publishable_key,
-        
-                    'payment_amount' =>
-                        $order->payment_amount,
-        
-                    'payment_currency' =>
-                        $order->payment_currency,
-                ]);
-        
+                $intent = (new StripePaymentService(false))->retrieve($order->payment_reference);
+                $status->applyIntentStatus($order, $intent->id, $intent->status);
             } catch (\Throwable $e) {
-        
-                Log::error(
-                    'Stripe PaymentIntent creation failed',
-                    [
-                        'order_id' =>
-                            $order->id,
-        
-                        'error' =>
-                            $e->getMessage(),
-                    ]
-                );
-        
-        
-                return response()->json([
-                    'message' =>
-                        'Unable to create Stripe payment.'
-                ], 500);
+                Log::warning('Stripe sync failed for order ' . $order->id . ': ' . $e->getMessage());
             }
         }
-    
+        return response()->json(['message' => 'done', 'order' => $order->fresh()]);
+    }
+
 }
