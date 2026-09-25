@@ -10,7 +10,7 @@
     # asset must be refused here: dotfiles (.env, .git), source, config,
     # storage (logs, Firebase key), vendor, and dumps / logs anywhere.
     RewriteRule (^|/)\.(?!well-known(/|$)) - [F,L]
-    RewriteRule ^(app|bootstrap|config|database|docs|lang|local-dev|node_modules|public|resources|routes|storage|tests|vendor)(/|$) - [F,L,NC]
+    RewriteRule ^(app|bootstrap|config|database|deploy|docs|lang|local-dev|node_modules|public|resources|routes|storage|tests|vendor)(/|$) - [F,L,NC]
     RewriteRule ^(artisan|composer\.(json|lock)|package(-lock)?\.json|phpunit\.xml|vite\.config\.js|server\.php|test-mail\.php)$ - [F,L,NC]
     RewriteRule \.(env|log|sql|md|sh|lock|ya?ml|dist|bak|old|orig|swp|zip|tgz|tar|gz)$ - [F,L,NC]
     # Uploaded files are data, never code.
