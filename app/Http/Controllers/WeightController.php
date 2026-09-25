@@ -39,6 +39,9 @@ class WeightController extends Controller
 	*/
 	public function store(Request $Request)
 	{			
+		if (Weight::normalizeKg($Request->input('value')) === null) {
+			return back()->withInput()->with('error', 'Enter the weight in kg as a number, e.g. 0.5 or 2.');
+		}
 		$data = new Weight;	
 		
 		$data->addNew($Request->all(),"add");
@@ -64,6 +67,9 @@ class WeightController extends Controller
 	*/
 	public function update(Request $Request,$id)
 	{	
+		if (Weight::normalizeKg($Request->input('value')) === null) {
+			return back()->withInput()->with('error', 'Enter the weight in kg as a number, e.g. 0.5 or 2.');
+		}
 		$data = new Weight;
 
 		$data->addNew($Request->all(),$id);

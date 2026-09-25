@@ -24,7 +24,7 @@
 </div>
 <div class="form-group col-md-6">
 <label for="inputEmail6">Password</label>
-{!! Form::text('password',null,['id' => 'password','class' => 'form-control','required'])!!}
+{!! Form::password('password',['id' => 'password','class' => 'form-control','autocomplete' => 'new-password','placeholder' => isset($data) ? 'Leave empty to keep the current password' : ''] + (isset($data) ? [] : ['required']))!!}
 </div>
 
 </div>

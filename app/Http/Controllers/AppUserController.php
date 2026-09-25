@@ -121,6 +121,52 @@ class AppUserController extends Controller
 		return redirect(env('admin').'/users')->with('message','Record Deleted Successfully.');
 	}
 	
+	/*
+	|---------------------------------------------
+	|@Mark identity verified / not verified by hand
+	|(for people Shufti could not check)
+	|---------------------------------------------
+	*/
+	/*
+	|---------------------------------------------
+	|@Identity document, for signed-in admins only
+	|(upload/identities is not reachable on the web)
+	|---------------------------------------------
+	*/
+	public function identityFile($id)
+	{
+		$user = AppUser::find($id);
+		$path = $user && $user->identity ? base_path(AppUser::IDENTITY_DIR . '/' . basename($user->identity)) : null;
+		if (!$path || !is_file($path)) {
+			abort(404);
+		}
+		return response()->file($path, [
+			'Cache-Control' => 'private, no-store',
+			'X-Content-Type-Options' => 'nosniff',
+		]);
+	}
+
+	public function userVerification()
+	{
+		$user = AppUser::find($_GET['id'] ?? null);
+		if (!$user) {
+			return redirect(env('admin') . '/users')->with('error', 'User not found.');
+		}
+
+		if ($user->is_verified) {
+			$user->identity_status = null;
+			$user->identity_verified_at = null;
+			$message = 'Identity verification removed. The user must verify again in the app.';
+		} else {
+			$user->identity_status = AppUser::IDENTITY_VERIFIED;
+			$user->identity_verified_at = now();
+			$message = 'User marked as verified.';
+		}
+		$user->save();
+
+		return redirect()->back()->with('message', $message);
+	}
+
 	public function userStatus()
     {
         $res = AppUser::find($_GET['id']);

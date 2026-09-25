@@ -92,7 +92,11 @@ class ParcelOrderController extends Controller
 
 	public function status()
 	{
-		$res 			= ParcelOrder::find($_GET['id']);
+		$allowed = ['Unassigned', 'Assigned', 'Picked', 'Transit', 'Delivered', 'Cancelled', 'Expired'];
+		$res 			= ParcelOrder::find($_GET['id'] ?? null);
+		if (!$res || !in_array($_GET['status'] ?? null, $allowed, true)) {
+			return Redirect::back()->with('error', 'Unknown order or status.');
+		}
 		$res->status 	= $_GET['status'];
 		$res->save();
 

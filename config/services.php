@@ -34,6 +34,31 @@ return [
         'translate_key' => env('GOOGLE_TRANSLATE_KEY'),
     ],
 
+    // Shufti Pro identity verification (selfie + ID document). The keys stay
+    // on the server; the app uploads the photos to api/signup or
+    // api/identity/verify and never talks to Shufti itself.
+    'shufti' => [
+        'client_id' => env('SHUFTI_CLIENT_ID'),
+        'secret_key' => env('SHUFTI_SECRET_KEY'),
+        'base_url' => env('SHUFTI_BASE_URL', 'https://api.shuftipro.com'),
+        // Only sent when set. Shufti refuses callbacks to a domain that is
+        // not registered in its back office ("callback domain is not
+        // registered"), so register carryon.app there first, then set
+        // https://carryon.app/admin/api/identity/shufti/callback. Without it,
+        // pending checks are resolved by identity:sync-pending.
+        'callback_url' => env('SHUFTI_CALLBACK_URL'),
+        // Shufti usually answers in ~20 s; past this the attempt is kept as
+        // pending and resolved by the callback or identity:sync-pending.
+        'timeout' => (int) env('SHUFTI_TIMEOUT', 60),
+    ],
+
+    // Mobile API auth. While the old Ionic app (no tokens) is still in use,
+    // set API_LEGACY_USER_ID_AUTH=true so its requests keep working on the
+    // user ids they send; switch it off once everyone runs the new app.
+    'app_api' => [
+        'legacy_user_id_auth' => (bool) env('API_LEGACY_USER_ID_AUTH', false),
+    ],
+
     'firebase' => [
         'credentials' => env('FIREBASE_CREDENTIALS_PATH'),
         // Set FIREBASE_ENABLED=false in a local env so test orders never push

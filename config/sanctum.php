@@ -33,7 +33,8 @@ return [
     |
     */
 
-    'guard' => ['web'],
+    // tokens only: the app API never authenticates through the admin session
+    'guard' => [],
 
     /*
     |--------------------------------------------------------------------------

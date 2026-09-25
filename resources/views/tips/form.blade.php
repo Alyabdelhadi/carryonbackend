@@ -8,8 +8,9 @@
     
     
         <div class="form-group col-md-6">
-        <label for="inputEmail6">Value</label>
-        {!! Form::text('value',null,['id' => 'code','class' => 'form-control','required'])!!}
+        <label for="inputEmail6">Reward amount</label>
+        {!! Form::text('value',null,['id' => 'code','class' => 'form-control','required','inputmode' => 'decimal','placeholder' => 'e.g. 10 (0 = Free)'])!!}
+        <small class="text-muted">Shown as a reward chip on the app's order form. 0 shows as "Free"; the app always adds "Other".</small>
         </div>
     
     <div class="col-xl-6">

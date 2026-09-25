@@ -41,10 +41,13 @@ class Address extends Model
 
     public function updateAddress($data)
     {
-        $addressId = $_GET['id'];
+        $addressId = $_GET['id'] ?? ($data['id'] ?? null);
         $address = Address::find($addressId);
+        // only the owner may change an address, and it stays theirs
+        if ($address && (int) $address->user_id !== (int) ($data['user_id'] ?? 0)) {
+            return ['message' => "Address with ID {$addressId} not found"];
+        }
         if ($address) {
-            $address->user_id     = $data['user_id'];
             $address->name        = $data['name'];
             $address->city        = $data['city'];
             $address->country     = $data['country'];

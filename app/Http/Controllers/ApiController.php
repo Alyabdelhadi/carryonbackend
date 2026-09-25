@@ -33,6 +33,7 @@ use App\Models\ParcelOrderView;
 use App\Models\PaymentMethod;
 use App\Services\StripePaymentService;
 use App\Services\PaymentStatusService;
+use App\Services\AppTokenService;
 
 class ApiController extends Controller
 {
@@ -46,10 +47,15 @@ class ApiController extends Controller
      * AppUser APIs
      */
     
-    public function signup(Request $Request)
+    public function signup(Request $Request, AppTokenService $tokens)
     {
         $res = new AppUser;
-        $response = response()->json($res->signup($Request->all())); 
+        $result = $res->signup($Request->all());
+        // a new account starts signed in
+        if (($result['msg'] ?? null) === 'done' && isset($result['user'])) {
+            $result += $tokens->issue($result['user'], $Request->input('device'));
+        }
+        $response = response()->json($result);
     
         // Extract the data from the response
         $responseData = $response->getData(true);
@@ -76,11 +82,14 @@ class ApiController extends Controller
     
         return $response;
     }
-    public function login(Request $Request)
+    public function login(Request $Request, AppTokenService $tokens)
 	{
 		$res  = new AppUser;
-		
-		return response()->json($res->login($Request->all()));
+		$result = $res->login($Request->all());
+		if (($result['msg'] ?? null) === 'done' && isset($result['user'])) {
+			$result += $tokens->issue($result['user'], $Request->input('device'));
+		}
+		return response()->json($result);
 	}
     public function verify(Request $Request)
 	{
@@ -109,16 +118,44 @@ class ApiController extends Controller
     }
     public function userInfo(Request $Request)
 	{
+		$me = $Request->user();
+		$id = (string) $Request->query('id', $me?->id);
+		if ($me && $id !== (string) $me->id) {
+			// someone else (a carrier on an order): public fields only
+			$other = AppUser::find($id);
+			if (!$other) {
+				return response()->json(['msg' => 'Oops! Invalid id.']);
+			}
+			return response()->json(['msg' => 'done', 'user' => $other->publicProfile()]);
+		}
+		$_GET['id'] = $me?->id ?? $id;
 		$res = new AppUser;
 
 		return response()->json($res->userInfo($Request->all())); 
 		
 	}
-    public function updateInfo(Request $Request)
+    public function updateInfo(Request $Request, AppTokenService $tokens)
 	{
+		$me = $Request->user();
+		// photos change only through identity verification
+		$data = $Request->except(['selfie', 'identity']);
+		$changesPassword = isset($data['password']) && $data['password'] !== '';
+		if ($changesPassword && $me) {
+			if (!$me->checkPassword($Request->input('current_password'))) {
+				return response()->json(['msg' => 'error', 'error' => 'Your current password is incorrect.', 'reason' => 'current_password']);
+			}
+			if (mb_strlen((string) $data['password']) < 6) {
+				return response()->json(['msg' => 'error', 'error' => 'Password must be at least 6 characters.']);
+			}
+		}
 		$res = new AppUser;
-
-		return response()->json($res->updateInfo($Request->all())); 
+		$result = $res->updateInfo($data);
+		if ($changesPassword && $me && ($result['msg'] ?? null) === 'done') {
+			// sign out every device, and hand this one a fresh pair
+			$tokens->revokeAll($me->id);
+			$result += $tokens->issue($me, $Request->input('device'));
+		}
+		return response()->json($result); 
 		
 	}
 	
@@ -126,7 +163,11 @@ class ApiController extends Controller
 	{
 		$res = new AppUser();
 
-		$response = response()->json($res->deleteUser($Request->all())); 
+		$result = $res->deleteUser($Request->all());
+		if ($Request->user() && str_contains(strtolower((string) ($result['message'] ?? '')), 'deactivated')) {
+			app(AppTokenService::class)->revokeAll($Request->user()->id);
+		}
+		$response = response()->json($result); 
     
         // Extract the data from the response
         $responseData = $response->getData(true);
@@ -337,7 +378,7 @@ class ApiController extends Controller
 	{
 		
 		$res = new ParcelOrder();
-        $responseData = $res->unassign($request->all());
+        $responseData = $res->unassign(['actor_id' => $request->user()->id] + $request->all());
     
         if (!isset($responseData['order'])) {
             return response()->json(['error' => 'Failed to unassign package'], 400);
@@ -644,15 +685,25 @@ class ApiController extends Controller
 	public function getParcelOrderById(Request $Request)
 	{
 		$res = new ParcelOrder;
+		$order = $res->getParcelOrderById($Request->all());
+		$me = (int) $Request->user()->id;
+		if (!$order) {
+			return response()->json(null);
+		}
+		$isParticipant = (int) $order->user_id === $me || (int) $order->carrier_id === $me;
+		if (!$isParticipant && $order->status !== 'Unassigned') {
+			return response()->json(['message' => 'You do not have access to this package.'], 403);
+		}
 
-		return response()->json($res->getParcelOrderById($Request->all()));
+		return response()->json(ParcelOrder::redactForViewer($order, $me));
 	}
 	
 	public function getUnassginedParcelOrders(Request $Request)
 	{
 		$res = new ParcelOrder;
+		$me = (int) $Request->user()->id;
 
-		return response()->json($res->getAllUnassigned($Request->all()));
+		return response()->json($res->getAllUnassigned($Request->all())->map(fn ($o) => ParcelOrder::redactForViewer($o, $me)));
 	}
 	
 	public function getMyCreatedParcelOrders(Request $Request)
@@ -708,9 +759,8 @@ class ApiController extends Controller
      */
 	public function getTips()
 	{
-		$res = new Tip;
-
-		return response()->json($res->getAll("1"));
+		// reward chips for the order form (0 = Free)
+		return response()->json(Tip::forApp());
 	}
 
 
@@ -719,9 +769,8 @@ class ApiController extends Controller
      */
 	public function getWeights()
 	{
-		$res = new Weight;
-
-		return response()->json($res->getAll("1"));
+		// quick-pick weights in kg for the order form and carbon calculator
+		return response()->json(Weight::forApp());
 	}
 
 
@@ -783,9 +832,22 @@ class ApiController extends Controller
      */
 	public function rate(Request $Request)
 	{
+		$me = (int) $Request->user()->id;
+		$order = ParcelOrder::find($Request->input('order_id'));
+		if (!$order || (int) $order->user_id !== $me || !$order->carrier_id) {
+			return response()->json(['msg' => 'You can only rate the carrier of your own package.']);
+		}
+		if ($order->status !== 'Delivered') {
+			return response()->json(['msg' => 'You can rate the carrier once the package is delivered.']);
+		}
+		$rating = (float) $Request->input('rating');
+		if ($rating < 1 || $rating > 5) {
+			return response()->json(['msg' => 'Rating must be between 1 and 5.']);
+		}
 		$res = new Rating;
 
-		return response()->json($res->rate($Request->all())); 
+		// the rating belongs to the carrier, whoever the app says it is
+		return response()->json($res->rate(['user_id' => $order->carrier_id, 'order_id' => $order->id, 'rating' => $rating])); 
 	}
 
 
@@ -884,16 +946,25 @@ class ApiController extends Controller
     public function updateTrip(Request $request, $id)
     {
         $trip = new \App\Models\Trip;
+        $existing = \App\Models\Trip::find($id);
+        if ($existing && (int) $existing->carrier_id !== (int) $request->user()->id) {
+            return response()->json(['message' => 'You can only change your own trips.'], 403);
+        }
 
         $data = $request->all();
+        $data['carrier_id'] = $request->user()->id;
 
         return response()->json($trip->updateTrip($id, $data));
     }
 
     // Delete Trip
-    public function deleteTrip($id)
+    public function deleteTrip(Request $request, $id)
     {
         $trip = new \App\Models\Trip;
+        $existing = \App\Models\Trip::find($id);
+        if ($existing && (int) $existing->carrier_id !== (int) $request->user()->id) {
+            return response()->json(['success' => false, 'message' => 'You can only delete your own trips.'], 403);
+        }
 
         return response()->json([
             'success' => $trip->deleteTrip($id)
@@ -927,7 +998,7 @@ class ApiController extends Controller
             return response()->json(['error' => 'No trips found for this carrier'], 404);
         }
 
-        return response()->json($orders);
+        return response()->json($orders->map(fn ($o) => ParcelOrder::redactForViewer($o, (int) $carrierId))->values());
     }
     
     public function markMatchingParcelOrdersAsRead(Request $request, $carrierId)
@@ -1098,7 +1169,9 @@ class ApiController extends Controller
         if (!$order->isPaid() && !empty($order->payment_reference)) {
             try {
                 $intent = (new StripePaymentService(false))->retrieve($order->payment_reference);
-                $status->applyIntentStatus($order, $intent->id, $intent->status);
+                if ($intent->status !== 'succeeded' || PaymentStatusService::intentMatchesOrder($order, $intent)) {
+                    $status->applyIntentStatus($order, $intent->id, $intent->status);
+                }
             } catch (\Throwable $e) {
                 Log::warning('Stripe sync failed for order ' . $order->id . ': ' . $e->getMessage());
             }

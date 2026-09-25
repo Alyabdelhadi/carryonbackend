@@ -28,6 +28,37 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 
+        // Every attempt is a billed Shufti request.
+        RateLimiter::for('identity', function (Request $request) {
+            return Limit::perHour(10)->by('identity|' . $request->ip());
+        });
+
+        RateLimiter::for('admin-login', function (Request $request) {
+            return [
+                Limit::perMinute(10)->by('admin-login|' . $request->ip()),
+                Limit::perMinute(5)->by('admin-login|' . strtolower((string) $request->input('username', ''))),
+            ];
+        });
+
+        // password guessing: per IP and per account
+        RateLimiter::for('login', function (Request $request) {
+            return [
+                Limit::perMinute(10)->by('login|' . $request->ip()),
+                Limit::perMinute(5)->by('login|' . strtolower((string) $request->input('email', ''))),
+            ];
+        });
+
+        RateLimiter::for('password-reset', function (Request $request) {
+            return [
+                Limit::perMinute(10)->by('password-reset|' . $request->ip()),
+                Limit::perHour(30)->by('password-reset|' . strtolower((string) $request->input('email', $request->input('user_id', '')))),
+            ];
+        });
+
+        RateLimiter::for('identity-status', function (Request $request) {
+            return Limit::perMinute(6)->by('identity-status|' . ($request->input('user_id') ?: $request->ip()));
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')

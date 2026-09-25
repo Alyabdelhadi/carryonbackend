@@ -20,7 +20,9 @@
 <thead >
 <tr>
 <th>Sort No</th>
-<th>Value</th>
+<th>Weight (kg)</th>
+<th>Order form</th>
+<th>Calculator</th>
 <th>Status</th>
 <th class="text-right">Options</th>
 </tr>
@@ -30,7 +32,9 @@
 @foreach($data as $row)
 <tr>
 <td width="10%">{{ $row->sort_no }}</td>
-<td width="17%">{{ $row->value }}</td>
+<td width="17%">{{ $row->value }} kg</td>
+<td>{{ $row->in_order_form ? 'Yes' : '—' }}</td>
+<td>{{ $row->in_calculator ? 'Yes' : '—' }}</td>
 <td width="17%">
 
 <a onclick="return confirm('Are you sure?')" href="{{ Asset('weightStatus?id='.$row->id) }}">

@@ -39,6 +39,9 @@ class TipController extends Controller
 	*/
 	public function store(Request $Request)
 	{			
+		if (\App\Models\Tip::normalizeAmount($Request->input('value')) === null) {
+			return back()->withInput()->with('error', 'Enter the reward as an amount, e.g. 10 (0 = Free).');
+		}
 		$data = new Tip;	
 		
 		$data->addNew($Request->all(),"add");
@@ -64,6 +67,9 @@ class TipController extends Controller
 	*/
 	public function update(Request $Request,$id)
 	{	
+		if (\App\Models\Tip::normalizeAmount($Request->input('value')) === null) {
+			return back()->withInput()->with('error', 'Enter the reward as an amount, e.g. 10 (0 = Free).');
+		}
 		$data = new Tip;
 
 		$data->addNew($Request->all(),$id);

@@ -9,12 +9,217 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Str;
+use App\Models\IdentityVerification;
+use App\Services\IdentityVerificationService;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Hash;
+use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Auth\Authenticatable;
+use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Spatie\Image\Image;
 use Spatie\ImageOptimizer\OptimizerChainFactory;
 
-class AppUser extends Model
+class AppUser extends Model implements AuthenticatableContract
 {
-    use HasFactory;
+    use Authenticatable, HasApiTokens, HasFactory;
+
+    /** app_users has no remember_token column (the app uses API tokens). */
+    public function getRememberTokenName()
+    {
+        return '';
+    }
+
+    public const SELFIE_DIR = 'upload/selfies';
+    public const IDENTITY_DIR = 'upload/identities';
+
+    // identity_status values; null means never verified
+    public const IDENTITY_VERIFIED = 'verified';
+    public const IDENTITY_PENDING = 'pending';
+
+    protected $hidden = [
+        'password', 'shufti_reference', 'vcode', 'reset_token', 'reset_otp_hash', 'reset_otp_expires_at',
+        'reset_otp_sent_at', 'reset_otp_attempts', 'reset_token_expires_at',
+    ];
+
+    protected $appends = ['is_verified'];
+
+    protected $casts = [
+        'identity_verified_at' => 'datetime',
+        'reset_otp_expires_at' => 'datetime',
+        'reset_otp_sent_at' => 'datetime',
+        'reset_token_expires_at' => 'datetime',
+    ];
+
+    /**
+     * Passwords are always stored hashed: a plain value is hashed on the way
+     * in, an existing hash (from hash-passwords or a rehash) is kept as is.
+     */
+    public function setPasswordAttribute($value): void
+    {
+        $value = (string) $value;
+        $this->attributes['password'] = self::isHashed($value) ? $value : Hash::make($value);
+    }
+
+    public static function isHashed(?string $value): bool
+    {
+        return $value !== null && $value !== '' && password_get_info($value)['algoName'] !== 'unknown';
+    }
+
+    /**
+     * Checks a password against the stored one. Accounts not yet migrated
+     * still hold the plain text; a match upgrades them to a hash on the spot.
+     */
+    public function checkPassword(?string $plain): bool
+    {
+        $plain = (string) $plain;
+        $stored = (string) ($this->attributes['password'] ?? '');
+        if ($plain === '' || $stored === '') {
+            return false;
+        }
+        if (self::isHashed($stored)) {
+            if (!Hash::check($plain, $stored)) {
+                return false;
+            }
+            if (Hash::needsRehash($stored)) {
+                $this->password = $plain;
+                $this->saveQuietly();
+            }
+            return true;
+        }
+        if (!hash_equals($stored, $plain)) {
+            return false;
+        }
+        $this->password = $plain;
+        $this->saveQuietly();
+        return true;
+    }
+
+    /**
+     * What other users may see (the carrier card on an order): no email,
+     * phone, documents, wallet or referral code.
+     */
+    public function publicProfile(): array
+    {
+        $rating = Rating::where('user_id', $this->id)->avg('rating');
+        return [
+            'id' => $this->id,
+            'name' => $this->name,
+            'selfie' => $this->selfie,
+            'role' => 'carrier',
+            'is_verified' => $this->is_verified,
+            'identity_status' => $this->is_verified ? self::IDENTITY_VERIFIED : null,
+            'carried_packages_count' => ParcelOrder::where('carrier_id', $this->id)->count(),
+            'packages_count' => ParcelOrder::where('user_id', $this->id)->count(),
+            'average_rating' => $rating ? round($rating, 2) : null,
+            'ratings_count' => Rating::where('user_id', $this->id)->count(),
+            'trees_saved' => $this->trees_saved,
+            'created_at' => $this->created_at,
+        ];
+    }
+
+    /** Shufti accepted the user's selfie and ID. */
+    public function getIsVerifiedAttribute(): bool
+    {
+        return ($this->attributes['identity_status'] ?? null) === self::IDENTITY_VERIFIED;
+    }
+
+    /**
+     * Moves an uploaded selfie into place and returns the file name.
+     * Pass $shrink = false when Shufti still has to read the full-size
+     * photo, then call [shrinkUploads] afterwards.
+     */
+    public static function storeSelfie(UploadedFile $file, bool $shrink = true): string
+    {
+        $name = Str::random(40) . '_selfie.' . self::safeExtension($file, false);
+        $file->move(self::SELFIE_DIR, $name);
+        if ($shrink) {
+            self::shrink(self::SELFIE_DIR . '/' . $name);
+        }
+        return $name;
+    }
+
+    /** Moves an uploaded ID (photo or PDF) into place; see [storeSelfie]. */
+    public static function storeIdentity(UploadedFile $file, bool $shrink = true): string
+    {
+        $name = Str::random(40) . '_identity.' . self::safeExtension($file, true);
+        $file->move(self::IDENTITY_DIR, $name);
+        if ($shrink) {
+            self::shrink(self::IDENTITY_DIR . '/' . $name);
+        }
+        return $name;
+    }
+
+    /**
+     * The extension to store an upload under, from its real content (never
+     * the name the client sent). Anything that is not a picture (or a PDF
+     * for ID documents) is refused.
+     */
+    public static function safeExtension(UploadedFile $file, bool $allowPdf): string
+    {
+        $allowed = ['jpg', 'jpeg', 'png', 'heic', 'heif', 'webp'];
+        if ($allowPdf) {
+            $allowed[] = 'pdf';
+        }
+        $ext = strtolower((string) $file->guessExtension());
+        $ext = $ext === 'jpeg' ? 'jpg' : $ext;
+        if (!$file->isValid() || !in_array($ext, $allowed, true) || $file->getSize() > 15 * 1024 * 1024) {
+            throw new \App\Exceptions\InvalidUploadException('Please upload a photo (JPG, PNG or HEIC)' . ($allowPdf ? ' or a PDF' : '') . '.');
+        }
+        return $ext;
+    }
+
+    /** Resizes photos stored with $shrink = false, once Shufti has seen them. */
+    public static function shrinkUploads(?string $selfie, ?string $identity): void
+    {
+        if ($selfie) {
+            self::shrink(self::SELFIE_DIR . '/' . $selfie);
+        }
+        if ($identity) {
+            self::shrink(self::IDENTITY_DIR . '/' . $identity);
+        }
+    }
+
+    /** Deletes photos stored for an attempt that did not create or update an account. */
+    public static function discardUploads(?string $selfie, ?string $identity): void
+    {
+        foreach ([[self::SELFIE_DIR, $selfie], [self::IDENTITY_DIR, $identity]] as [$dir, $name]) {
+            if ($name && is_file($dir . '/' . $name)) {
+                @unlink($dir . '/' . $name);
+            }
+        }
+    }
+
+    /** Resize to 800 px wide and optimise; any failure keeps the original file. */
+    private static function shrink(string $path): void
+    {
+        try {
+            if (strtolower(pathinfo($path, PATHINFO_EXTENSION)) !== 'pdf') {
+                Image::load($path)->width(800)->save();
+            }
+            OptimizerChainFactory::create()->optimize($path);
+        } catch (\Throwable $e) {
+            // keep the moved original
+        }
+    }
+
+    /** The error body the app maps to a localized identity message. */
+    public static function identityError(IdentityVerification $attempt): array
+    {
+        return match ($attempt->status) {
+            IdentityVerification::DECLINED => [
+                'msg' => 'error', 'reason' => 'identity_declined',
+                'error' => 'Identity verification failed. Please retake your photos and try again.',
+            ],
+            IdentityVerification::INVALID => [
+                'msg' => 'error', 'reason' => 'identity_invalid', 'detail' => $attempt->message,
+                'error' => 'We could not read your photos. Please retake them in good light and try again.',
+            ],
+            default => [
+                'msg' => 'error', 'reason' => 'identity_unavailable',
+                'error' => 'Identity verification is unavailable right now. Please try again in a few minutes.',
+            ],
+        };
+    }
 
     // Sign up
     public function signup($data)
@@ -43,6 +248,27 @@ class AppUser extends Model
             $chkCode = null;
         }
     
+        // Photos first: with Shufti on, the account only exists once the
+        // selfie and ID passed (or are still being checked).
+        $verify = IdentityVerificationService::enabled();
+        $selfie = isset($data['selfie']) ? self::storeSelfie($data['selfie'], !$verify) : null;
+        $identity = isset($data['identity']) ? self::storeIdentity($data['identity'], !$verify) : null;
+
+        $attempt = null;
+        if ($verify) {
+            if (!$selfie || !$identity) {
+                self::discardUploads($selfie, $identity);
+                return ['msg' => 'error', 'error' => 'Please upload both a selfie and an identity document.'];
+            }
+            $service = app(IdentityVerificationService::class);
+            $attempt = $service->check('signup', $selfie, $identity, $email, null, request()->ip());
+            if (IdentityVerificationService::isRejection($attempt->status)) {
+                self::discardUploads($selfie, $identity);
+                return self::identityError($attempt);
+            }
+            self::shrinkUploads($selfie, $identity);
+        }
+
         $add = new AppUser;
         $add->name = ucwords(strtolower($data['name']));
         $add->email = $email; // store lowercase
@@ -64,80 +290,25 @@ class AppUser extends Model
             $up->save();
         }
     
-        $optimizer = OptimizerChainFactory::create();
-    
-        // --- Selfie upload (ignore any processing/optimization errors) ---
-        if (isset($data['selfie'])) {
-            $selfieFile = $data['selfie'];
-            $selfieFileName = time() . rand(111, 699) . '_selfie.' . $selfieFile->getClientOriginalExtension();
-            $selfiePath = 'upload/selfies/' . $selfieFileName;
-    
-            // Move the original file first (so it’s saved even if processing fails)
-            $selfieFile->move('upload/selfies', $selfieFileName);
-    
-            // Try to resize/optimize; ignore any errors and keep original
-            try {
-                // Some image libraries may throw on invalid/corrupt files
-                Image::load($selfiePath)->width(800)->save();
-                try {
-                    $optimizer->optimize($selfiePath);
-                } catch (\Throwable $e) {
-                    // ignore optimizer errors
-                }
-            } catch (\Throwable $e) {
-                // ignore image processing errors, keep the moved original
-            }
-    
-            $add->selfie = $selfieFileName;
-        }
-    
-        // --- Identity upload (ignore any processing/optimization errors) ---
-        if (isset($data['identity'])) {
-            $identityFile = $data['identity'];
-            $identityFileName = time() . rand(111, 699) . '_identity.' . $identityFile->getClientOriginalExtension();
-            $identityPath = 'upload/identities/' . $identityFileName;
-    
-            // Move the original file first
-            $identityFile->move('upload/identities', $identityFileName);
-    
-            $ext = strtolower($identityFile->getClientOriginalExtension());
-            if ($ext !== 'pdf') {
-                try {
-                    Image::load($identityPath)->width(800)->save();
-                    try {
-                        $optimizer->optimize($identityPath);
-                    } catch (\Throwable $e) {
-                        // ignore optimizer errors
-                    }
-                } catch (\Throwable $e) {
-                    // ignore image processing errors, keep the moved original
-                }
-            } else {
-                // PDFs: only try optimizer, ignore errors
-                try {
-                    $optimizer->optimize($identityPath);
-                } catch (\Throwable $e) {
-                    // ignore optimizer errors on pdf
-                }
-            }
-    
-            $add->identity = $identityFileName;
-        }
-    
+        $add->selfie = $selfie;
+        $add->identity = $identity;
+
         $add->save();
+
+        if ($attempt) {
+            app(IdentityVerificationService::class)->applyToUser($add, $attempt);
+        }
     
         $add->makeHidden(['password']);
-        return ['msg' => 'done', 'user' => $add];
+        return ['msg' => 'done', 'user' => $add->fresh()->makeHidden(['password'])];
     }
 
     // Login
     public function login($data)
     {
-        $user = AppUser::where('email', $data['email'])
-            ->where('password', $data['password'])
-            ->first();
-    
-        if (!$user) {
+        $user = AppUser::where('email', strtolower(trim((string) ($data['email'] ?? ''))))->first();
+
+        if (!$user || !$user->checkPassword($data['password'] ?? null)) {
             return ['msg' => 'Oops! Invalid login details'];
         }
     
@@ -179,10 +350,14 @@ class AppUser extends Model
     // Submit Verification
     public function submitVerification($data)
     {
-        $id = $data['user_id'];
-        $token = $data['token'];
-    
-        $user = AppUser::where('id', $id)->where('vcode', $token)->first();
+        $id = $data['user_id'] ?? null;
+        $token = (string) ($data['token'] ?? '');
+
+        // an empty token must never match the NULL column
+        $user = strlen($token) >= 32 ? AppUser::where('id', $id)->whereNotNull('vcode')->first() : null;
+        if ($user && !hash_equals((string) $user->vcode, $token)) {
+            $user = null;
+        }
     
         if ($user) {
             $user->status = 1;
@@ -225,9 +400,12 @@ class AppUser extends Model
     // Submit new password using token
     public function resetPassword($data)
     {
-        $user = self::where('id', $data['user_id'])
-                    ->where('reset_token', $data['token'])
-                    ->first();
+        $token = (string) ($data['token'] ?? '');
+        $user = strlen($token) >= 32 ? self::where('id', $data['user_id'] ?? null)->whereNotNull('reset_token')->first() : null;
+        if ($user && (!hash_equals((string) $user->reset_token, $token)
+            || !$user->reset_token_expires_at || $user->reset_token_expires_at->isPast())) {
+            $user = null;
+        }
     
         if (!$user) {
             return ['status' => 'error', 'message' => 'Invalid or expired token'];
@@ -255,31 +433,17 @@ class AppUser extends Model
             $add->country       = $data['country'] ?? null;;
             $add->city          = $data['city'] ?? null;;
             
-            if(isset($data['password']))
+            if(isset($data['password']) && $data['password'] !== '')
             {
                 $add->password  = $data['password'];
             }
             
-            $optimizer = OptimizerChainFactory::create();
-
             if (isset($data['selfie'])) {
-                $selfieFile = $data['selfie'];
-                $selfieFileName = time() . rand(111, 699) . '_selfie.' . $selfieFile->getClientOriginalExtension();
-                $selfiePath = 'upload/selfies/' . $selfieFileName;
-                $selfieFile->move('upload/selfies', $selfieFileName);
-                Image::load($selfiePath)->width(800)->save();
-                $optimizer->optimize($selfiePath);
-                $add->selfie = $selfieFileName;
+                $add->selfie = self::storeSelfie($data['selfie']);
             }
     
             if (isset($data['identity'])) {
-                $identityFile = $data['identity'];
-                $identityFileName = time() . rand(111, 699) . '_identity.' . $identityFile->getClientOriginalExtension();
-                $identityPath = 'upload/identities/' . $identityFileName;
-                $identityFile->move('upload/identities', $identityFileName);
-                Image::load($identityPath)->width(800)->save();
-                $optimizer->optimize($identityPath);
-                $add->identity = $identityFileName;
+                $add->identity = self::storeIdentity($data['identity']);
             }
 
             $add->save();

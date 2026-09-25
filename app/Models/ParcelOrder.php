@@ -174,14 +174,14 @@ class ParcelOrder extends Model
             return ['message' => 'done', 'order' => $parcelOrder];
     
         } catch (\Throwable $e) {
+            // no request body in the log: it holds names, phones and addresses
             \Log::error('Parcel Order Creation Failed: '.$e->getMessage(), [
-                'data' => $data,
+                'user_id' => $data['user_id'] ?? null,
                 'trace' => $e->getTraceAsString()
             ]);
     
             return response()->json([
                 'message' => 'An error occurred while creating the order.',
-                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -303,6 +303,10 @@ class ParcelOrder extends Model
     
                 // Check if the user is the creator of this order
                 if ($user->id == $parcelOrder->user_id) {
+
+                    if (!in_array($parcelOrder->status, ['Unassigned', 'Expired'], true)) {
+                        return ['message' => 'Only open or expired packages can get a new date.'];
+                    }
     
                     // Extend with new date if provided and valid
                     if (isset($data['date_to'])) {
@@ -350,6 +354,21 @@ class ParcelOrder extends Model
             $orderId = $data['order_id'];
             $parcelOrder = ParcelOrder::find($orderId);
             if ($parcelOrder) {
+                // only an open package, and never your own
+                if ($parcelOrder->status !== 'Unassigned' || $parcelOrder->carrier_id !== null) {
+                    return ['message' => 'This package is no longer available.'];
+                }
+                if ((int) $parcelOrder->user_id === (int) $carrierId) {
+                    return ['message' => 'You cannot carry your own package.'];
+                }
+                // two carriers accepting at once: only the first one wins
+                $claimed = ParcelOrder::where('id', $parcelOrder->id)
+                    ->where('status', 'Unassigned')->whereNull('carrier_id')
+                    ->update(['carrier_id' => $carrierId, 'status' => 'Assigned']);
+                if ($claimed === 0) {
+                    return ['message' => 'This package is no longer available.'];
+                }
+                $parcelOrder->refresh();
                 $parcelOrder->carrier_id = $carrierId;
                 $parcelOrder->status = "Assigned";
                 if ($parcelOrder->awaitingPayment()) {
@@ -379,7 +398,9 @@ class ParcelOrder extends Model
     public function unassign($data)
     {
 
-        $userId = $data['user_id'];
+        // the signed-in user (actor_id, set by the controller); the app still
+        // sends the carrier as user_id when the sender drops the carrier
+        $userId = $data['actor_id'] ?? $data['user_id'];
         $user   = AppUser::find($userId);
         
         // Check if the user exist
@@ -391,8 +412,13 @@ class ParcelOrder extends Model
             // Check if the order exist
             if ($parcelOrder) {
                 
-                // Check if the user is the carrier of this order
-                if ($user->id == $parcelOrder->carrier_id) {
+                // the carrier drops the package, or the sender drops the carrier
+                if ($parcelOrder->carrier_id !== null
+                    && ($user->id == $parcelOrder->carrier_id || $user->id == $parcelOrder->user_id)) {
+
+                    if ($parcelOrder->status !== 'Assigned') {
+                        return ['message' => 'The package can only be released before pickup.'];
+                    }
                     
                     // Change the status of the order to 'Unassigned' and remove the carrier id
                     $parcelOrder->status = "Unassigned";
@@ -438,6 +464,9 @@ class ParcelOrder extends Model
                 // Check if the user is the carrier of this order
                 if ($user->id == $parcelOrder->carrier_id) {
                     
+                    if ($parcelOrder->status !== 'Assigned') {
+                        return ['message' => 'This package cannot be picked up now.'];
+                    }
                     if ($parcelOrder->awaitingPayment()) {
                         return ['message' => 'The sender has not paid for this package yet.'];
                     }
@@ -497,6 +526,9 @@ class ParcelOrder extends Model
         if ($order->status === 'Delivered') {
             return ['message' => 'Order already delivered (no update)', 'order' => $order];
         }
+        if (!in_array($order->status, ['Picked', 'Transit'], true)) {
+            return ['message' => 'This package has not been picked up.'];
+        }
     
         // Decimal trees saved for this order; do NOT fallback
         $treesForThisOrder = $order->trees_saved; // decimal or null
@@ -552,6 +584,9 @@ class ParcelOrder extends Model
                 // Check if the user is the carrier of this order
                 if ($user->id == $parcelOrder->carrier_id) {
                     
+                    if ($parcelOrder->status !== 'Picked') {
+                        return ['message' => 'This package cannot be marked in transit now.'];
+                    }
                     if ($parcelOrder->awaitingPayment()) {
                         return ['message' => 'The sender has not paid for this package yet.'];
                     }
@@ -598,6 +633,11 @@ class ParcelOrder extends Model
                 // Check if the user is the creator of this order
                 if ($user->id == $parcelOrder->user_id) {
                     
+                    // once the carrier has it, cancelling goes through support
+                    if (!in_array($parcelOrder->status, ['Unassigned', 'Assigned', 'Expired'], true)) {
+                        return ['message' => 'This package can no longer be cancelled. Please contact support.'];
+                    }
+
                     $refund = null;
                     $wasPickedUp = in_array($parcelOrder->status, ['Picked', 'Transit', 'Delivered'], true);
 
@@ -632,14 +672,39 @@ class ParcelOrder extends Model
         return $response;
     }
     
-    public function getParcelOrderById()
+    public function getParcelOrderById($data = [])
     {
-        return ParcelOrder::where('parcel_orders.id', $_GET['id'])
+        return ParcelOrder::where('parcel_orders.id', $data['id'] ?? $_GET['id'] ?? null)
             ->join('parcel_cates', 'parcel_orders.cate_id', '=', 'parcel_cates.id')
             ->select('parcel_orders.*', 'parcel_cates.name as cate_name', 'parcel_cates.name_ar as cate_name_ar', 'parcel_cates.img as cate_image')
             ->first();
     }
     
+    /**
+     * An order as [viewerId] may see it. The sender and the carrier get
+     * everything; anyone else (a carrier browsing open packages) gets no
+     * phones, no street / building / apartment, no payment references, and
+     * coordinates rounded to about 1 km.
+     */
+    public static function redactForViewer($order, int $viewerId)
+    {
+        if ((int) $order->user_id === $viewerId || (int) $order->carrier_id === $viewerId) {
+            return $order;
+        }
+        $order->makeHidden([
+            's_phone', 'r_phone', 's_street', 'r_street', 's_building', 'r_building',
+            's_apartment', 'r_apartment', 's_notes', 'r_notes',
+            'payment_reference', 'refund_reference', 'paid_at', 'refunded_at',
+            'commission_amount', 'payment_deadline_at',
+        ]);
+        foreach (['s_lat', 's_lng', 'r_lat', 'r_lng'] as $key) {
+            if (is_numeric($order->{$key})) {
+                $order->{$key} = round((float) $order->{$key}, 2);
+            }
+        }
+        return $order;
+    }
+
     public function getAllUnassigned()
     {
         return ParcelOrder::where(function($query){

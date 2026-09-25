@@ -14,6 +14,7 @@ class Kernel extends ConsoleKernel
     {
         $schedule->command('parcel-orders:expire')->dailyAt('00:00')->timezone('Asia/Beirut'); // Midnight
         $schedule->command('orders:release-unpaid')->hourly();
+        $schedule->command('identity:sync-pending')->everyTenMinutes();
     }
 
     /**

@@ -41,9 +41,9 @@ use App\Http\Controllers\PayoutRequestController;
 
 Route::get('/',[AdminController::class, 'index']);
 Route::get('login',[AdminController::class, 'index'])->name('login');
-Route::post('login',[AdminController::class, 'login']);
+Route::post('login',[AdminController::class, 'login'])->middleware('throttle:admin-login');
 
-Route::group(['middleware' => 'auth'], function(){
+Route::group(['middleware' => ['auth', 'admin.same-origin']], function(){
 
 /*
 |-----------------------------------------
@@ -180,6 +180,8 @@ Route::get('users/inactive', [AppUserController::class, 'inactive']);
 Route::resource('users', AppUserController::class);
 Route::get('users/delete/{id}', [AppUserController::class, 'delete']);
 Route::get('userStatus', [AppUserController::class, 'userStatus']);
+Route::get('userVerification', [AppUserController::class, 'userVerification']);
+Route::get('users/{id}/identity', [AppUserController::class, 'identityFile']);
 
 
 /*

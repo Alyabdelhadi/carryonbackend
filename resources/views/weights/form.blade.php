@@ -8,8 +8,22 @@
     
     
         <div class="form-group col-md-6">
-        <label for="inputEmail6">Value</label>
-        {!! Form::text('value',null,['id' => 'code','class' => 'form-control','required'])!!}
+        <label for="inputEmail6">Weight (kg)</label>
+        {!! Form::text('value',null,['id' => 'code','class' => 'form-control','required','inputmode' => 'decimal','placeholder' => 'e.g. 0.5, 2, 10'])!!}
+        </div>
+
+        <div class="form-group col-md-6">
+        <label>Show in the app</label>
+        <div class="custom-control custom-checkbox">
+        <input type="hidden" name="in_order_form" value="0">
+        <input type="checkbox" class="custom-control-input" id="in_order_form" name="in_order_form" value="1" @if(!isset($data->id) || $data->in_order_form) checked @endif>
+        <label class="custom-control-label" for="in_order_form">Order form (send / receive a package)</label>
+        </div>
+        <div class="custom-control custom-checkbox">
+        <input type="hidden" name="in_calculator" value="0">
+        <input type="checkbox" class="custom-control-input" id="in_calculator" name="in_calculator" value="1" @if(!isset($data->id) || $data->in_calculator) checked @endif>
+        <label class="custom-control-label" for="in_calculator">Carbon calculator</label>
+        </div>
         </div>
     
     <div class="col-xl-6">

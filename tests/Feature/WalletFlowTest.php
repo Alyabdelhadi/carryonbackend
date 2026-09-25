@@ -13,6 +13,7 @@ use App\Services\WalletService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Artisan;
 use InvalidArgumentException;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
@@ -36,6 +37,20 @@ class WalletFlowTest extends TestCase
         AppSetting::setNumber(AppSetting::PAYOUT_HOLD_DAYS, 0);
         AppSetting::setNumber(AppSetting::PAYMENT_DEADLINE_HOURS, 24);
         PaymentMethod::where('code', 'stripe')->update(['enabled' => 1]);
+    }
+
+    /**
+     * Every API call runs as the user it names in `user_id` (body or query),
+     * the way the app sends its access token for that user.
+     */
+    public function json($method, $uri, array $data = [], array $headers = [], $options = 0)
+    {
+        parse_str((string) parse_url($uri, PHP_URL_QUERY), $query);
+        $userId = $data['user_id'] ?? $query['user_id'] ?? null;
+        if ($userId !== null) {
+            Sanctum::actingAs(AppUser::find($userId), ['app']);
+        }
+        return parent::json($method, $uri, $data, $headers, $options);
     }
 
     private function makeUser(string $tag): AppUser

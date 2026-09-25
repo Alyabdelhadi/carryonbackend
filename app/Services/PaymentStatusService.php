@@ -60,6 +60,26 @@ class PaymentStatusService
         $order->save();
     }
 
+    /**
+     * A succeeded intent only pays the order when it charged the order's
+     * current amount in its currency (an older intent for another amount
+     * must not mark it paid).
+     */
+    public static function intentMatchesOrder(ParcelOrder $order, $intent): bool
+    {
+        $expected = (int) round(((float) $order->payment_amount) * 100);
+        $matches = (int) ($intent->amount_received ?: $intent->amount) === $expected
+            && strtolower((string) $intent->currency) === strtolower((string) $order->payment_currency);
+        if (!$matches) {
+            Log::warning('Stripe intent does not match the order amount; not marking paid.', [
+                'order_id' => $order->id, 'payment_intent' => $intent->id,
+                'intent_amount' => $intent->amount, 'intent_currency' => $intent->currency,
+                'order_amount_cents' => $expected, 'order_currency' => $order->payment_currency,
+            ]);
+        }
+        return $matches;
+    }
+
     /** Map a Stripe intent status onto the order. */
     public function applyIntentStatus(ParcelOrder $order, string $intentId, string $status): void
     {

@@ -40,6 +40,7 @@
 <th>Carried Packages</th>
 <th>RCode</th>
 <th>Status</th>
+<th>Verification</th>
 <th>Options</th>
 </tr>
 </thead>
@@ -70,12 +71,12 @@
 @if(!empty($row->identity))
     <td>
         @if($extension === 'pdf')
-            <a href="{{ asset('upload/identities/' . $row->identity) }}" target="_blank">
+            <a href="{{ asset('users/' . $row->id . '/identity') }}" target="_blank">
                 <i class="fas fa-file-pdf fa-2x text-danger"></i> View PDF
             </a>
         @elseif(in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heif', 'heic']))
-            <a href="{{ asset('upload/identities/' . $row->identity) }}" data-lightbox="user-{{ $row->id }}-identity" data-title="Identity">
-                <img src="{{ asset('upload/identities/' . $row->identity) }}" width="50" loading="lazy" alt="Identity">
+            <a href="{{ asset('users/' . $row->id . '/identity') }}" data-lightbox="user-{{ $row->id }}-identity" data-title="Identity">
+                <img src="{{ asset('users/' . $row->id . '/identity') }}" width="50" loading="lazy" alt="Identity">
             </a>
         @else
             Unknown file type
@@ -121,6 +122,20 @@
     </div>
     </div>
     
+    @endif
+    </a>
+</td>
+
+<td>
+    <a onclick="return confirm('{{ $row->is_verified ? 'Remove verification? The user will have to verify again in the app.' : 'Mark this user as verified?' }}')" href="{{ Asset('userVerification?id='.$row->id) }}">
+    @if($row->is_verified)
+    <div class="chip chip-success mr-1"><div class="chip-body"><span class="chip-text">Verified</span></div></div>
+    @elseif($row->identity_status == 'pending')
+    <div class="chip chip-warning mr-1"><div class="chip-body"><span class="chip-text">Under review</span></div></div>
+    @elseif(in_array($row->identity_status, ['declined', 'invalid']))
+    <div class="chip chip-danger mr-1"><div class="chip-body"><span class="chip-text">{{ ucfirst($row->identity_status) }}</span></div></div>
+    @else
+    <div class="chip mr-1"><div class="chip-body"><span class="chip-text">Not verified</span></div></div>
     @endif
     </a>
 </td>

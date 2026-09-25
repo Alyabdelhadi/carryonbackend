@@ -20,7 +20,7 @@
 <thead >
 <tr>
 <th>Sort No</th>
-<th>Value</th>
+<th>Reward</th>
 <th>Status</th>
 <th class="text-right">Options</th>
 </tr>
@@ -30,7 +30,7 @@
 @foreach($data as $row)
 <tr>
 <td width="10%">{{ $row->sort_no }}</td>
-<td width="17%">{{ $row->value }}</td>
+<td width="17%">{{ (float) $row->value == 0 && is_numeric($row->value) ? 'Free' : $row->value }}</td>
 <td width="17%">
 
 <a onclick="return confirm('Are you sure?')" href="{{ Asset('tipStatus?id='.$row->id) }}">

@@ -32,7 +32,7 @@ class AppSetting extends Model
         return [
             self::SHUFTI_ENABLED => [
                 'label' => 'Shufti identity verification',
-                'help' => 'When on, signup checks the selfie and ID document with Shufti Pro before creating the account. When off, the photos are still uploaded for manual review but no verification is run.',
+                'help' => 'When on, signup checks the selfie and ID document with Shufti Pro before creating the account, accounts that are not verified must verify in the app before they can use it, and verified users show a badge. When off, the photos are still uploaded for manual review, no verification is run and nobody is blocked.',
                 'default' => true,
             ],
         ];

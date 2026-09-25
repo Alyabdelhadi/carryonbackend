@@ -5,6 +5,22 @@
 
     RewriteEngine On
 
+    # --- Security --------------------------------------------------------
+    # The project root is the web root, so everything that is not a public
+    # asset must be refused here: dotfiles (.env, .git), source, config,
+    # storage (logs, Firebase key), vendor, and dumps / logs anywhere.
+    RewriteRule (^|/)\.(?!well-known(/|$)) - [F,L]
+    RewriteRule ^(app|bootstrap|config|database|docs|lang|local-dev|node_modules|public|resources|routes|storage|tests|vendor)(/|$) - [F,L,NC]
+    RewriteRule ^(artisan|composer\.(json|lock)|package(-lock)?\.json|phpunit\.xml|vite\.config\.js|server\.php|test-mail\.php)$ - [F,L,NC]
+    RewriteRule \.(env|log|sql|md|sh|lock|ya?ml|dist|bak|old|orig|swp|zip|tgz|tar|gz)$ - [F,L,NC]
+    # Uploaded files are data, never code.
+    RewriteRule ^upload/.*\.(php\d?|phtml|phar|pht|phps|cgi|pl|py|sh|shtml|htaccess)$ - [F,L,NC]
+    # Identity documents are only for the admin (served by an authenticated route).
+    RewriteRule ^upload/identities/ - [F,L,NC]
+    # Legacy link-based reset / email verification: accepted empty tokens
+    # (account takeover). Replaced by api/password/*.
+    RewriteRule ^api/(resetPassword|sendResetLink|submitVerification)$ - [F,L,NC]
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
@@ -19,3 +35,4 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
+

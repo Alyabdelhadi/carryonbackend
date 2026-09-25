@@ -78,6 +78,9 @@ class StripeWebhookController extends Controller
             Log::warning('Stripe payment succeeded but order not found.', ['payment_intent' => $paymentIntent->id]);
             return;
         }
+        if (!PaymentStatusService::intentMatchesOrder($order, $paymentIntent)) {
+            return;
+        }
         $this->status->markPaid($order, $paymentIntent->id);
     }
 
