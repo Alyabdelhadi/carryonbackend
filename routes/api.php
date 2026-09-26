@@ -47,6 +47,8 @@ Route::middleware('throttle:password-reset')->group(function () {
 
 // Identity verification (Shufti runs on the server; see IdentityController)
 Route::post('identity/verify', [IdentityController::class, 'verify'])->middleware(['app.auth:user_id', 'throttle:identity']);
+Route::post('identity/live', [IdentityController::class, 'live'])->middleware(['app.auth:user_id', 'throttle:identity']);
+Route::get('identity/shufti/done', [IdentityController::class, 'shuftiDone']);
 Route::get('identity/status', [IdentityController::class, 'status'])->middleware(['app.auth:user_id', 'throttle:identity-status']);
 Route::post('identity/shufti/callback', [IdentityController::class, 'shuftiCallback']);
 

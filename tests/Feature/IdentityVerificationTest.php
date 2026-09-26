@@ -40,6 +40,7 @@ class IdentityVerificationTest extends TestCase
             'services.shufti.base_url' => 'https://shufti.test',
         ]);
         AppSetting::setBool(AppSetting::SHUFTI_ENABLED, true);
+        AppSetting::setBool(AppSetting::SHUFTI_LIVE, false);
     }
 
     protected function tearDown(): void
@@ -200,6 +201,108 @@ class IdentityVerificationTest extends TestCase
         $this->assertFalse($res['user']['is_verified']);
         $this->assertNull($res['user']['identity_status']);
         Http::assertNothingSent();
+    }
+
+    private function existingAccount(): AppUser
+    {
+        $user = new AppUser();
+        $user->name = 'Old Account';
+        $user->email = $this->emails[] = 'old' . uniqid() . '@example.test';
+        $user->phone = '00961' . random_int(10000000, 99999999);
+        $user->password = 'secret';
+        $user->role = 1;
+        $user->status = 1;
+        $user->save();
+        return $user;
+    }
+
+    public function test_live_mode_signup_skips_the_photo_check_and_refuses_photo_verification(): void
+    {
+        AppSetting::setBool(AppSetting::SHUFTI_LIVE, true);
+        Http::fake();
+
+        $res = $this->post('/api/signup', $this->signupPayload())->json();
+        $this->assertSame('done', $res['msg']);
+        $this->assertNull($res['user']['identity_status']);
+        Http::assertNothingSent();
+
+        $user = AppUser::findOrFail($res['user']['id']);
+        Sanctum::actingAs($user, ['app']);
+        $res = $this->post('/api/identity/verify', [
+            'user_id' => $user->id,
+            'selfie' => UploadedFile::fake()->image('s.jpg'),
+            'identity' => UploadedFile::fake()->image('i.jpg'),
+        ])->json();
+        $this->assertSame('identity_live_required', $res['reason']);
+        Http::assertNothingSent();
+    }
+
+    public function test_live_session_goes_from_unsubmitted_to_review_to_verified(): void
+    {
+        AppSetting::setBool(AppSetting::SHUFTI_LIVE, true);
+        $user = $this->existingAccount();
+        Sanctum::actingAs($user, ['app']);
+
+        $this->fakeShufti('request.pending', ['verification_url' => 'https://app.shuftipro.com/verification/abc']);
+        $res = $this->post('/api/identity/live', ['user_id' => $user->id, 'lang' => 'ar'])->json();
+
+        $this->assertSame('done', $res['msg']);
+        $this->assertSame('https://app.shuftipro.com/verification/abc', $res['verification_url']);
+        Http::assertSent(fn ($request) => !isset($request['face']['proof'])
+            && $request['face']['allow_offline'] === '0'
+            && $request['language'] === 'AR'
+            && !isset($request['document']['proof']));
+        $user->refresh();
+        $this->assertNull($user->identity_status);
+        $attempt = IdentityVerification::where('reference', $user->shufti_reference)->firstOrFail();
+        $this->assertSame('live', $attempt->source);
+
+        // the browser closed before the user finished: nothing changes
+        $this->fakeShufti('request.pending');
+        $res = $this->get('/api/identity/status?user_id=' . $user->id)->json();
+        $this->assertTrue($res['live_unsubmitted']);
+        $this->assertNull($res['user']['identity_status']);
+
+        // submitted, Shufti still reviewing: under review
+        $this->fakeShufti('review.pending');
+        $res = $this->get('/api/identity/status?user_id=' . $user->id)->json();
+        $this->assertFalse($res['live_unsubmitted']);
+        $this->assertSame('pending', $res['user']['identity_status']);
+
+        $this->fakeShufti('verification.accepted');
+        $this->post('/api/identity/shufti/callback', ['reference' => $attempt->reference])->assertOk();
+        $this->assertTrue($user->fresh()->is_verified);
+    }
+
+    public function test_expired_unfinished_live_session_keeps_the_users_status(): void
+    {
+        AppSetting::setBool(AppSetting::SHUFTI_LIVE, true);
+        $user = $this->existingAccount();
+        $user->identity_status = 'declined';
+        $user->save();
+        Sanctum::actingAs($user, ['app']);
+
+        $this->fakeShufti('request.pending', ['verification_url' => 'https://app.shuftipro.com/verification/abc']);
+        $this->post('/api/identity/live', ['user_id' => $user->id])->assertOk();
+
+        $this->fakeShufti('request.timeout');
+        $res = $this->get('/api/identity/status?user_id=' . $user->id)->json();
+        $this->assertFalse($res['live_unsubmitted']);
+        $this->assertSame('declined', $user->fresh()->identity_status);
+        $this->assertSame('failed', IdentityVerification::where('reference', $user->fresh()->shufti_reference)->value('status'));
+    }
+
+    public function test_live_session_that_cannot_start_asks_to_retry(): void
+    {
+        AppSetting::setBool(AppSetting::SHUFTI_LIVE, true);
+        $user = $this->existingAccount();
+        Sanctum::actingAs($user, ['app']);
+
+        $this->fakeShufti('request.invalid', ['error' => ['service' => '', 'message' => 'callback domain is not registered']]);
+        $res = $this->post('/api/identity/live', ['user_id' => $user->id])->json();
+
+        $this->assertSame('identity_unavailable', $res['reason']);
+        $this->assertNull($user->fresh()->shufti_reference);
     }
 
     public function test_existing_account_can_verify_and_is_not_downgraded(): void

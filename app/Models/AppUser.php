@@ -202,6 +202,15 @@ class AppUser extends Model implements AuthenticatableContract
         }
     }
 
+    /** Photo verification refused while the admin requires the live check. */
+    public static function liveRequiredError(): array
+    {
+        return [
+            'msg' => 'error', 'reason' => 'identity_live_required',
+            'error' => 'Please update CarryOn to the latest version to verify your identity.',
+        ];
+    }
+
     /** The error body the app maps to a localized identity message. */
     public static function identityError(IdentityVerification $attempt): array
     {
@@ -249,8 +258,10 @@ class AppUser extends Model implements AuthenticatableContract
         }
     
         // Photos first: with Shufti on, the account only exists once the
-        // selfie and ID passed (or are still being checked).
-        $verify = IdentityVerificationService::enabled();
+        // selfie and ID passed (or are still being checked). In live mode
+        // the photos are only the profile picture / manual-review copy and
+        // the account verifies afterwards on Shufti's page.
+        $verify = IdentityVerificationService::enabled() && !IdentityVerificationService::liveMode();
         $selfie = isset($data['selfie']) ? self::storeSelfie($data['selfie'], !$verify) : null;
         $identity = isset($data['identity']) ? self::storeIdentity($data['identity'], !$verify) : null;
 

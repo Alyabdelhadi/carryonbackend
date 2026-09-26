@@ -16,6 +16,7 @@ class AppSetting extends Model
     protected $fillable = ['key', 'value'];
 
     public const SHUFTI_ENABLED = 'shufti_enabled';
+    public const SHUFTI_LIVE = 'shufti_live';
     public const STAT_PACKAGES = 'stat_packages';
     public const STAT_USERS = 'stat_users';
     public const STAT_TREES = 'stat_trees_saved';
@@ -34,6 +35,11 @@ class AppSetting extends Model
                 'label' => 'Shufti identity verification',
                 'help' => 'When on, signup checks the selfie and ID document with Shufti Pro before creating the account, accounts that are not verified must verify in the app before they can use it, and verified users show a badge. When off, the photos are still uploaded for manual review, no verification is run and nobody is blocked.',
                 'default' => true,
+            ],
+            self::SHUFTI_LIVE => [
+                'label' => 'Live face verification (Shufti onsite)',
+                'help' => 'Only used while Shufti verification is on. When on, signup no longer checks uploaded photos: after creating the account the app opens Shufti\'s own page, which takes a live selfie with a liveness check and scans the ID. Uploaded photos are then refused for verification, so users on an app version without live verification must update. Check that onsite verification is enabled on the Shufti account before turning this on.',
+                'default' => false,
             ],
         ];
     }

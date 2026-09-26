@@ -9,9 +9,11 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
- * Identity checks for app users. Signup and re-verification store the
- * photos first, then call [check]; the Shufti callback and the
- * identity:sync-pending command resolve checks that were still pending.
+ * Identity checks for app users. Photo mode: signup and re-verification
+ * store the photos first, then call [check]. Live mode (admin switch
+ * `shufti_live`): [startLive] opens a Shufti onsite session the app shows
+ * in a browser. Either way the Shufti callback, api/identity/status and
+ * the identity:sync-pending command resolve checks that were still pending.
  */
 class IdentityVerificationService
 {
@@ -27,6 +29,15 @@ class IdentityVerificationService
     {
         return AppSetting::getBool(AppSetting::SHUFTI_ENABLED, true);
     }
+
+    /** Shufti's hosted page (live selfie + ID) instead of uploaded photos. */
+    public static function liveMode(): bool
+    {
+        return self::enabled() && AppSetting::getBool(AppSetting::SHUFTI_LIVE, false);
+    }
+
+    /** Shufti's event for an onsite session the user has not submitted yet. */
+    public const EVENT_NOT_SUBMITTED = 'request.pending';
 
     /** Statuses that end the attempt without a verified account. */
     public static function isRejection(string $status): bool
@@ -78,6 +89,53 @@ class IdentityVerificationService
     }
 
     /**
+     * Opens a live (onsite) session for the user. The attempt becomes the
+     * user's latest (`shufti_reference`) so the callback can apply its
+     * verdict, but the user's status only moves once they submit.
+     *
+     * @return array{attempt: IdentityVerification, url: ?string}
+     */
+    public function startLive(AppUser $user, ?string $ip, string $language = 'EN'): array
+    {
+        $attempt = IdentityVerification::create([
+            'app_user_id' => $user->id,
+            'reference' => 'CO_' . now()->format('YmdHis') . '_' . Str::upper(Str::random(10)),
+            'source' => 'live',
+            'status' => IdentityVerification::PENDING,
+            'ip' => $ip,
+        ]);
+
+        $response = $this->shufti->startOnsite($attempt->reference, $user->email, $language);
+        $this->record($attempt, $response);
+        $url = $response['verification_url'] ?? null;
+
+        if ($attempt->status !== IdentityVerification::PENDING || !$url) {
+            if ($attempt->status === IdentityVerification::PENDING) {
+                $attempt->status = IdentityVerification::FAILED;
+                $attempt->message = 'Shufti returned no verification_url.';
+                $attempt->save();
+            }
+            Log::warning('Live identity session could not start.', [
+                'reference' => $attempt->reference,
+                'user_id' => $user->id,
+                'event' => $attempt->event,
+            ]);
+            return ['attempt' => $attempt, 'url' => null];
+        }
+
+        $user->shufti_reference = $attempt->reference;
+        $user->save();
+        Log::info('Live identity session started.', ['reference' => $attempt->reference, 'user_id' => $user->id]);
+        return ['attempt' => $attempt, 'url' => $url];
+    }
+
+    /** A live session whose page the user has not completed yet. */
+    public static function isUnsubmitted(IdentityVerification $attempt): bool
+    {
+        return $attempt->source === 'live' && $attempt->event === self::EVENT_NOT_SUBMITTED;
+    }
+
+    /**
      * Copies an attempt's outcome onto the user. A verified user is never
      * downgraded by a late or stale attempt.
      */
@@ -123,6 +181,7 @@ class IdentityVerificationService
             return $attempt;
         }
 
+        $wasUnsubmitted = self::isUnsubmitted($attempt);
         $this->record($attempt, $this->shufti->status($attempt->reference));
 
         if ($attempt->status === IdentityVerification::PENDING
@@ -132,16 +191,32 @@ class IdentityVerificationService
             $attempt->save();
         }
 
-        if ($attempt->status === IdentityVerification::PENDING || !$attempt->app_user_id) {
+        if (!$attempt->app_user_id) {
+            return $attempt;
+        }
+        $user = AppUser::find($attempt->app_user_id);
+        // only the user's latest attempt decides their status
+        if (!$user || $user->shufti_reference !== $attempt->reference) {
             return $attempt;
         }
 
-        $user = AppUser::find($attempt->app_user_id);
-        // only the user's latest attempt decides their status
-        if ($user && $user->shufti_reference === $attempt->reference) {
-            $this->applyToUser($user, $attempt);
-            $this->notify($user, $attempt);
+        if ($attempt->status === IdentityVerification::PENDING) {
+            // a live session the user just submitted: under review now
+            if ($attempt->source === 'live' && !self::isUnsubmitted($attempt)
+                && $user->identity_status !== AppUser::IDENTITY_PENDING) {
+                $this->applyToUser($user, $attempt);
+            }
+            return $attempt;
         }
+
+        // a live page left unfinished (expired or cancelled) is not a
+        // verdict: the user keeps their status and can start again
+        if ($wasUnsubmitted && $attempt->status === IdentityVerification::FAILED) {
+            return $attempt;
+        }
+
+        $this->applyToUser($user, $attempt);
+        $this->notify($user, $attempt);
         return $attempt;
     }
 
@@ -152,8 +227,9 @@ class IdentityVerificationService
             'verification.accepted' => IdentityVerification::VERIFIED,
             'verification.declined' => IdentityVerification::DECLINED,
             'request.invalid' => IdentityVerification::INVALID,
-            'request.pending', 'request.received', ShuftiService::EVENT_TIMEOUT => IdentityVerification::PENDING,
-            // request.unauthorized, request.timeout, request.deleted, unreachable, ...
+            'request.pending', 'request.received', 'review.pending', ShuftiService::EVENT_TIMEOUT => IdentityVerification::PENDING,
+            // request.unauthorized, request.timeout (live page expired),
+            // verification.cancelled, request.deleted, unreachable, ...
             default => IdentityVerification::FAILED,
         };
     }

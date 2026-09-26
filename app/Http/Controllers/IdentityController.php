@@ -29,6 +29,10 @@ class IdentityController extends Controller
         if ($user->is_verified || !IdentityVerificationService::enabled()) {
             return response()->json(['msg' => 'done', 'user' => $this->userJson($user)]);
         }
+        if (IdentityVerificationService::liveMode()) {
+            // photos cannot prove liveness: this app version must update
+            return response()->json(AppUser::liveRequiredError());
+        }
         if (!$request->hasFile('selfie') || !$request->hasFile('identity')) {
             return response()->json(['msg' => 'error', 'error' => 'Please upload both a selfie and an identity document.']);
         }
@@ -52,8 +56,39 @@ class IdentityController extends Controller
     }
 
     /**
-     * GET api/identity/status?user_id= : the app's "Check again" on the
-     * under-review screen. Asks Shufti directly when a check is pending.
+     * POST api/identity/live (user_id, optional lang=ar): opens a Shufti
+     * onsite session and returns its `verification_url` for the app to
+     * show in a browser. The app then calls api/identity/status.
+     */
+    public function live(Request $request)
+    {
+        $user = AppUser::find($request->input('user_id'));
+        if (!$user) {
+            return response()->json(['msg' => 'Oops! Invalid id.']);
+        }
+        // nothing to do, or a submitted check is still being reviewed
+        if ($user->is_verified || !IdentityVerificationService::liveMode()
+            || $user->identity_status === AppUser::IDENTITY_PENDING) {
+            return response()->json(['msg' => 'done', 'user' => $this->userJson($user)]);
+        }
+
+        $language = strtolower((string) $request->input('lang')) === 'ar' ? 'AR' : 'EN';
+        $started = $this->identity->startLive($user, $request->ip(), $language);
+        if (!$started['url']) {
+            return response()->json(AppUser::identityError($started['attempt']));
+        }
+        return response()->json([
+            'msg' => 'done',
+            'verification_url' => $started['url'],
+            'user' => $this->userJson($user->fresh()),
+        ]);
+    }
+
+    /**
+     * GET api/identity/status?user_id= : "Check again" on the under-review
+     * screen, and the return from a live session. Asks Shufti directly
+     * when the latest check is pending. `live_unsubmitted` is true while
+     * the user's live session page has not been completed.
      */
     public function status(Request $request)
     {
@@ -61,14 +96,20 @@ class IdentityController extends Controller
         if (!$user) {
             return response()->json(['msg' => 'Oops! Invalid id.']);
         }
-        if ($user->identity_status === AppUser::IDENTITY_PENDING && $user->shufti_reference) {
-            $attempt = IdentityVerification::where('reference', $user->shufti_reference)->first();
-            if ($attempt) {
-                $this->identity->resolve($attempt);
-                $user->refresh();
-            }
+        $attempt = $user->shufti_reference
+            ? IdentityVerification::where('reference', $user->shufti_reference)->first()
+            : null;
+        if ($attempt && $attempt->status === IdentityVerification::PENDING) {
+            $this->identity->resolve($attempt);
+            $user->refresh();
         }
-        return response()->json(['msg' => 'done', 'user' => $this->userJson($user)]);
+        return response()->json([
+            'msg' => 'done',
+            'user' => $this->userJson($user),
+            'live_unsubmitted' => $attempt !== null
+                && $attempt->status === IdentityVerification::PENDING
+                && IdentityVerificationService::isUnsubmitted($attempt),
+        ]);
     }
 
     /**
@@ -86,6 +127,21 @@ class IdentityController extends Controller
         }
         $this->identity->resolve($attempt);
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * GET api/identity/shufti/done: where Shufti's page sends the browser
+     * when the user is done (SHUFTI_REDIRECT_URL). The app checks the
+     * result itself once the browser closes.
+     */
+    public function shuftiDone()
+    {
+        return response(
+            '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            . '<title>CarryOn</title></head><body style="font-family:-apple-system,system-ui,sans-serif;text-align:center;padding:48px 24px">'
+            . '<h2>Thank you</h2><p>You can close this page and return to CarryOn.</p>'
+            . '<p dir="rtl">شكرًا لك. يمكنك إغلاق هذه الصفحة والعودة إلى CarryOn.</p></body></html>'
+        )->header('Content-Type', 'text/html; charset=utf-8');
     }
 
     private function userJson(AppUser $user): AppUser

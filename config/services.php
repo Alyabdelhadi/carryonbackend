@@ -50,6 +50,12 @@ return [
         // Shufti usually answers in ~20 s; past this the attempt is kept as
         // pending and resolved by the callback or identity:sync-pending.
         'timeout' => (int) env('SHUFTI_TIMEOUT', 60),
+        // Live (onsite) mode, admin switch `shufti_live`: where Shufti's page
+        // sends the browser when the user is done (optional; the domain must
+        // be registered in the Shufti back office like the callback), and
+        // how many minutes its verification_url stays valid.
+        'redirect_url' => env('SHUFTI_REDIRECT_URL'),
+        'onsite_ttl' => (int) env('SHUFTI_ONSITE_TTL', 60),
     ],
 
     // Mobile API auth. While the old Ionic app (no tokens) is still in use,

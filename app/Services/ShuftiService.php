@@ -7,7 +7,9 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Thin client for the Shufti Pro API (face + document verification).
+ * Thin client for the Shufti Pro API (face + document verification):
+ * offsite (we send the photos) or onsite (Shufti's own page captures a
+ * live selfie and the ID, see [startOnsite]).
  * Returns plain arrays and never throws: every failure comes back as an
  * event the caller can store.
  */
@@ -50,17 +52,55 @@ class ShuftiService
         return $this->post('/', $payload, (int) config('services.shufti.timeout', 60));
     }
 
+    /**
+     * Opens an onsite session: no proofs are sent, Shufti answers
+     * `request.pending` with a `verification_url` where the user takes a
+     * live selfie (liveness check) and scans the ID. The verdict arrives
+     * later through the callback / [status].
+     *
+     * @return array{event: string, message: ?string, result: ?array, verification_url: ?string}
+     */
+    public function startOnsite(string $reference, ?string $email, string $language = 'EN'): array
+    {
+        $payload = [
+            'reference' => $reference,
+            'email' => $email ?? '',
+            'country' => '',
+            'language' => $language,
+            'verification_mode' => 'image_only',
+            // minutes before the verification_url stops working
+            'ttl' => (int) config('services.shufti.onsite_ttl', 60),
+            'show_results' => '1',
+            // live camera capture only: no selfie from the gallery
+            'face' => ['allow_offline' => '0', 'allow_online' => '1'],
+            'document' => [
+                'supported_types' => ['passport', 'id_card', 'driving_license'],
+                'allow_offline' => '1',
+                'allow_online' => '1',
+            ],
+        ];
+        if (filled(config('services.shufti.callback_url'))) {
+            $payload['callback_url'] = config('services.shufti.callback_url');
+        }
+        if (filled(config('services.shufti.redirect_url'))) {
+            $payload['redirect_url'] = config('services.shufti.redirect_url');
+        }
+
+        // nothing user-supplied is checked yet, so any request.invalid is ours
+        return $this->post('/', $payload, 30, false);
+    }
+
     /** Current state of an earlier request, straight from Shufti. */
     public function status(string $reference): array
     {
         return $this->post('/status', ['reference' => $reference], 30);
     }
 
-    private function post(string $path, array $payload, int $timeout): array
+    private function post(string $path, array $payload, int $timeout, bool $proofsSent = true): array
     {
         if (!$this->isConfigured()) {
             Log::error('Shufti keys are missing (SHUFTI_CLIENT_ID / SHUFTI_SECRET_KEY).');
-            return ['event' => self::EVENT_UNREACHABLE, 'message' => 'Verification is not configured.', 'result' => null];
+            return ['event' => self::EVENT_UNREACHABLE, 'message' => 'Verification is not configured.', 'result' => null, 'verification_url' => null];
         }
 
         try {
@@ -80,13 +120,14 @@ class ShuftiService
                 'event' => $timedOut ? self::EVENT_TIMEOUT : self::EVENT_UNREACHABLE,
                 'message' => null,
                 'result' => null,
+                'verification_url' => null,
             ];
         }
 
         $body = $response->json();
         if (!is_array($body) || empty($body['event'])) {
             Log::warning('Shufti answered without an event.', ['path' => $path, 'status' => $response->status()]);
-            return ['event' => self::EVENT_UNREACHABLE, 'message' => null, 'result' => null];
+            return ['event' => self::EVENT_UNREACHABLE, 'message' => null, 'result' => null, 'verification_url' => null];
         }
 
         $error = $body['error'] ?? null;
@@ -95,7 +136,7 @@ class ShuftiService
         // the face or document service; anything else (callback domain,
         // payload, account setup) is our configuration, not theirs.
         if ($event === 'request.invalid'
-            && !in_array(is_array($error) ? ($error['service'] ?? '') : '', ['face', 'document'], true)) {
+            && (!$proofsSent || !in_array(is_array($error) ? ($error['service'] ?? '') : '', ['face', 'document'], true))) {
             Log::error('Shufti rejected the request configuration.', ['path' => $path, 'error' => $error]);
             $event = self::EVENT_CONFIG_ERROR;
         }
@@ -105,6 +146,7 @@ class ShuftiService
             // pass/fail flags only; verification_data (name, DOB, document
             // number) is personal data we do not need to keep
             'result' => is_array($body['verification_result'] ?? null) ? $body['verification_result'] : null,
+            'verification_url' => is_string($body['verification_url'] ?? null) ? $body['verification_url'] : null,
         ];
     }
 }
