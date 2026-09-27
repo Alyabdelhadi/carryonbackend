@@ -10,6 +10,7 @@ use Illuminate\Console\Command;
  * Safety net for the Shufti callback: asks Shufti for the verdict of every
  * check still pending after a few minutes. Checks with no verdict after
  * 24 h are marked failed so the app asks the user to verify again.
+ * Manual-review attempts are left to the admin.
  */
 class SyncPendingIdentityChecks extends Command
 {
@@ -20,6 +21,7 @@ class SyncPendingIdentityChecks extends Command
     public function handle(IdentityVerificationService $identity): int
     {
         $pending = IdentityVerification::where('status', IdentityVerification::PENDING)
+            ->where('source', '!=', IdentityVerificationService::SOURCE_MANUAL)
             ->where('created_at', '<', now()->subMinutes(5))
             ->orderBy('id')
             ->limit(100)

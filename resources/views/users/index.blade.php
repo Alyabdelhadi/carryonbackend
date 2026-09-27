@@ -1,192 +1,135 @@
 @extends('layout.main')
-@section('title') Users @endsection
+@section('title') {{ $title ?? 'Users' }} @endsection
 @section('content')
 
-<section id="basic-input">
-<div class="row">
-<div class="col-md-12">
+<x-admin.page-header :title="$title ?? 'Users'" subtitle="Senders and carriers using the CarryOn app.">
+    <x-admin.add-button module="users" :href="Asset('users/add')" label="Add user" />
+</x-admin.page-header>
+
 <div class="card">
-
-<div class="row" id="table-head">
-<div class="col-12">
-<div class="card">
-<div class="card-content">
-
-<div class="card-body d-flex justify-content-between align-items-center">
-    <h4 class="card-title mb-0">Users</h4>
-    <a href="{{ Asset($link.'add') }}" class="btn btn-primary">Add New</a>
-</div>
-
-<form method="GET" class="form-inline mb-2 ml-2 d-flex justify-content-center align-items-center">
-    {{-- Search --}}
-    <input type="text" name="search" value="{{ request('search') }}" class="form-control mr-2 w-50" placeholder="Search by name, email or phone">
-    <button type="submit" class="btn btn-primary">Search</button>
-</form>
-
-<div class="table-responsive">
-<table class="table mb-0">
-<thead >
-<tr>
-<th>ID</th>
-<th>Name</th>
-<th>Phone</th>
-<th>Email</th>
-<th>Registration Date</th>
-<th>Selfie</th>
-<th>Identity</th>
-<th>Rating</th>
-<th>Trips</th>
-<th>Packages</th>
-<th>Carried Packages</th>
-<th>RCode</th>
-<th>Status</th>
-<th>Verification</th>
-<th>Options</th>
-</tr>
-</thead>
-<tbody>
-
-@foreach($data as $row)
-<tr>
-<td>{{ $row->id }}</td>
-<td>{{ $row->name }}</td>
-<td>{{ $row->phone }}</td>
-<td>{{ $row->email }}</td>
-<td>{{ date('Y-m-d',strtotime($row->created_at)) }} - {{ date('h:i:A',strtotime($row->created_at)) }}</td>
-@if(!empty($row->selfie))
-<td>
-    <a href="{{ asset('upload/selfies/' . $row->selfie) }}" data-lightbox="user-{{ $row->id }}-selfie" data-title="Selfie">
-        <img src="{{ asset('upload/selfies/' . $row->selfie) }}" width="50" loading="lazy" alt="Selfie">
-    </a>
-</td>
-@else
-<td>No Image</td>
-@endif
-
-@php
-    $filePath = public_path('upload/identities/' . $row->identity);
-    $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
-@endphp
-
-@if(!empty($row->identity))
-    <td>
-        @if($extension === 'pdf')
-            <a href="{{ asset('users/' . $row->id . '/identity') }}" target="_blank">
-                <i class="fas fa-file-pdf fa-2x text-danger"></i> View PDF
-            </a>
-        @elseif(in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heif', 'heic']))
-            <a href="{{ asset('users/' . $row->id . '/identity') }}" data-lightbox="user-{{ $row->id }}-identity" data-title="Identity">
-                <img src="{{ asset('users/' . $row->id . '/identity') }}" width="50" loading="lazy" alt="Identity">
-            </a>
-        @else
-            Unknown file type
+    <form method="GET" class="co-toolbar">
+        <div class="co-search">
+            <i class="feather icon-search"></i>
+            <input type="search" name="search" value="{{ request('search') }}" class="form-control" placeholder="Search by name, email or phone">
+        </div>
+        <select name="per_page" class="form-control" style="width:auto" onchange="this.form.submit()" aria-label="Rows per page">
+            @foreach([10, 25, 50, 100] as $size)
+                <option value="{{ $size }}" {{ request('per_page', 50) == $size ? 'selected' : '' }}>{{ $size }} rows</option>
+            @endforeach
+        </select>
+        <button type="submit" class="btn btn-primary">Search</button>
+        @if(request('search'))
+            <a href="{{ url()->current() }}" class="btn btn-light">Reset</a>
         @endif
-    </td>
-@else
-    <td>No File</td>
-@endif
+    </form>
 
-<td>
-    {{ $row->average_rating }}
-</td>
-
-<td>
-    {{ $row->trips_count }}
-</td>
-
-<td>
-    {{ $row->packages_count }}
-</td>
-
-<td>
-    {{ $row->carried_packages_count }}
-</td>
-
-<td>{{ $row->rcode }}</td>
-
-<td>
-    <a onclick="return confirm('Are you sure?')" href="{{ Asset('userStatus?id='.$row->id) }}">
-    @if($row->status == 1)
-    
-    <div class="chip chip-success mr-1">
-    <div class="chip-body">
-    <span class="chip-text">Active</span>
-    </div>
-    </div>
-    
+    @if($data->isEmpty())
+        <x-admin.empty icon="users" title="No users found" />
     @else
-    
-    <div class="chip chip-danger mr-1">
-    <div class="chip-body">
-    <span class="chip-text">Inactive</span>
+    <div class="table-responsive">
+    <table class="table">
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>User</th>
+        <th>Phone</th>
+        <th>Registered</th>
+        <th>ID doc</th>
+        <th>Activity</th>
+        <th>Rating</th>
+        <th>Status</th>
+        <th>Verification</th>
+        <th class="text-right">Actions</th>
+    </tr>
+    </thead>
+    <tbody>
+    @foreach($data as $row)
+    <tr>
+        <td class="text-muted">#{{ $row->id }}</td>
+        <td>
+            <div class="d-flex align-items-center" style="gap:10px;min-width:220px">
+                @if(!empty($row->selfie))
+                    <a href="{{ asset('upload/selfies/' . $row->selfie) }}" data-lightbox="user-{{ $row->id }}-selfie" data-title="Selfie">
+                        <img src="{{ asset('upload/selfies/' . $row->selfie) }}" width="40" height="40" loading="lazy" alt="Selfie" style="border-radius:50%">
+                    </a>
+                @else
+                    <span class="co-avatar">{{ mb_strtoupper(mb_substr($row->name, 0, 1)) }}</span>
+                @endif
+                <div>
+                    <strong>{{ $row->name }}</strong>
+                    <div class="text-muted small">{{ $row->email }}</div>
+                    @if($row->rcode)<div class="text-muted small">Code {{ $row->rcode }}</div>@endif
+                </div>
+            </div>
+        </td>
+        <td class="text-nowrap">{{ $row->phone }}</td>
+        <td class="text-nowrap">{{ date('Y-m-d',strtotime($row->created_at)) }}<div class="text-muted small">{{ date('h:i A',strtotime($row->created_at)) }}</div></td>
+        @php $extension = strtolower(pathinfo((string) $row->identity, PATHINFO_EXTENSION)); @endphp
+        <td>
+            @if(!empty($row->identity))
+                @if($extension === 'pdf')
+                    <a href="{{ asset('users/' . $row->id . '/identity') }}" target="_blank" class="text-nowrap">
+                        <i class="feather icon-file-text text-danger"></i> PDF
+                    </a>
+                @elseif(in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heif', 'heic']))
+                    <a href="{{ asset('users/' . $row->id . '/identity') }}" data-lightbox="user-{{ $row->id }}-identity" data-title="Identity">
+                        <img src="{{ asset('users/' . $row->id . '/identity') }}" width="44" height="44" loading="lazy" alt="Identity">
+                    </a>
+                @else
+                    <span class="text-muted">Unknown file</span>
+                @endif
+            @else
+                <span class="text-muted">—</span>
+            @endif
+        </td>
+        <td class="text-nowrap small">
+            <div><strong>{{ $row->packages_count }}</strong> sent · <strong>{{ $row->carried_packages_count }}</strong> carried</div>
+            <div class="text-muted">{{ $row->trips_count }} {{ \Illuminate\Support\Str::plural('trip', $row->trips_count) }}</div>
+        </td>
+        <td class="text-nowrap">@if($row->average_rating)<i class="feather icon-star" style="color:var(--co-warn)"></i> {{ $row->average_rating }}@else<span class="text-muted">—</span>@endif</td>
+        <td>
+            <x-admin.status-toggle module="users" :url="Asset('userStatus?id='.$row->id)" :active="$row->status == 1" />
+        </td>
+        <td>
+            @if($row->identity_status == 'pending')
+                <span class="chip chip-warning"><span class="chip-body"><span class="chip-text">Under review</span></span></span>
+                @can('users.edit')
+                <div class="mt-50 text-nowrap">
+                    <a class="btn btn-sm btn-success" href="{{ Asset('userVerification?id='.$row->id.'&action=approve') }}" data-co-go="Approve this user's identity? Check that the selfie matches the ID first." data-co-go-label="Approve">Approve</a>
+                    <a class="btn btn-sm btn-outline-danger" href="{{ Asset('userVerification?id='.$row->id.'&action=reject') }}" data-co-go="Reject? The user will be asked to upload new photos." data-co-go-label="Reject">Reject</a>
+                </div>
+                @endcan
+            @else
+                @php
+                    $verifyChip = $row->is_verified
+                        ? ['chip-success', 'Verified']
+                        : (in_array($row->identity_status, ['declined', 'invalid']) ? ['chip-danger', ucfirst($row->identity_status)] : ['', 'Not verified']);
+                @endphp
+                @can('users.edit')
+                    <a href="{{ Asset('userVerification?id='.$row->id.'&action='.($row->is_verified ? 'revoke' : 'approve')) }}"
+                       data-co-go="{{ $row->is_verified ? 'Remove verification? The user will have to verify again in the app.' : 'Mark this user as verified?' }}">
+                        <span class="chip {{ $verifyChip[0] }}"><span class="chip-body"><span class="chip-text">{{ $verifyChip[1] }}</span></span></span>
+                    </a>
+                @else
+                    <span class="chip {{ $verifyChip[0] }}"><span class="chip-body"><span class="chip-text">{{ $verifyChip[1] }}</span></span></span>
+                @endcan
+            @endif
+        </td>
+        <td class="text-right">
+            <x-admin.row-actions module="users" :edit="Asset('users/'.$row->id.'/edit')" :delete="Asset('users/delete/'.$row->id)"
+                :delete-text="'Delete ' . $row->name . '? This permanently removes the user and all their packages, trips, addresses, ratings and wallet history.'" />
+        </td>
+    </tr>
+    @endforeach
+    </tbody>
+    </table>
     </div>
-    </div>
-    
-    @endif
-    </a>
-</td>
 
-<td>
-    <a onclick="return confirm('{{ $row->is_verified ? 'Remove verification? The user will have to verify again in the app.' : 'Mark this user as verified?' }}')" href="{{ Asset('userVerification?id='.$row->id) }}">
-    @if($row->is_verified)
-    <div class="chip chip-success mr-1"><div class="chip-body"><span class="chip-text">Verified</span></div></div>
-    @elseif($row->identity_status == 'pending')
-    <div class="chip chip-warning mr-1"><div class="chip-body"><span class="chip-text">Under review</span></div></div>
-    @elseif(in_array($row->identity_status, ['declined', 'invalid']))
-    <div class="chip chip-danger mr-1"><div class="chip-body"><span class="chip-text">{{ ucfirst($row->identity_status) }}</span></div></div>
-    @else
-    <div class="chip mr-1"><div class="chip-body"><span class="chip-text">Not verified</span></div></div>
-    @endif
-    </a>
-</td>
-
-<td>
-
-<a class="btn btn-icon btn-info mr-1 mb-1 waves-effect waves-light" data-toggle="tooltip" data-placement="top" data-original-title="Edit" href="{{ Asset($link.$row->id.'/edit') }}"><i class="feather icon-edit"></i></a>
-</td>
-</tr>
-
-@endforeach
-
-</tbody>
-</table>
-</div>
-
-<!-- Pagination Info -->
-<div class="mt-4 ml-2">
-    <p>
-        Showing page {{ $data->currentPage() }} of {{ $data->lastPage() }} — Total results: {{ $data->total() }}
-    </p>
-</div>
-
-<!-- Pagination Controls Form -->
-<form method="GET" id="pagination-controls" class="form-inline flex-nowrap mt-2 ml-2">
-    {{-- Rows per page --}}
-    <label for="per_page" class="mr-2">Rows per page:</label>
-    <select name="per_page" id="per_page" class="form-control mr-3" onchange="document.getElementById('pagination-controls').submit();">
-        @foreach([10, 25, 50, 100] as $size)
-            <option value="{{ $size }}" {{ request('per_page', 50) == $size ? 'selected' : '' }}>{{ $size }}</option>
-        @endforeach
-    </select>
-</form>
-
-<!-- Pagination Links -->
-<div class="container mx-2 my-2 w-100 p-0">
-    <div class="d-flex">
+    <div class="d-flex flex-wrap align-items-center justify-content-between px-2 py-1" style="gap:12px">
+        <span class="text-muted small">Page {{ $data->currentPage() }} of {{ $data->lastPage() }} · {{ number_format($data->total()) }} users</span>
         {{ $data->appends(request()->except('page'))->links('pagination::bootstrap-4') }}
     </div>
+    @endif
 </div>
-<div class="mt-2 mb-4 ml-2">
-    {{ $data->appends(request()->input())->links() }}
-</div> 
-
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</section>
 
 @endsection

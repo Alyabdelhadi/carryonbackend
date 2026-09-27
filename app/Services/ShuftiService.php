@@ -7,9 +7,9 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Thin client for the Shufti Pro API (face + document verification):
- * offsite (we send the photos) or onsite (Shufti's own page captures a
- * live selfie and the ID, see [startOnsite]).
+ * Thin client for the Shufti Pro API (face + document verification),
+ * onsite only: Shufti's own page captures a live selfie and the ID, see
+ * [startOnsite].
  * Returns plain arrays and never throws: every failure comes back as an
  * event the caller can store.
  */
@@ -27,29 +27,6 @@ class ShuftiService
     public function isConfigured(): bool
     {
         return filled(config('services.shufti.client_id')) && filled(config('services.shufti.secret_key'));
-    }
-
-    /**
-     * @return array{event: string, message: ?string, result: ?array}
-     */
-    public function verify(string $reference, string $selfiePath, string $identityPath, ?string $email): array
-    {
-        $payload = [
-            'reference' => $reference,
-            'email' => $email ?? '',
-            'country' => '',
-            'language' => 'EN',
-            'face' => ['proof' => base64_encode(file_get_contents($selfiePath))],
-            'document' => [
-                'proof' => base64_encode(file_get_contents($identityPath)),
-                'supported_types' => ['passport', 'id_card', 'driving_license'],
-            ],
-        ];
-        if (filled(config('services.shufti.callback_url'))) {
-            $payload['callback_url'] = config('services.shufti.callback_url');
-        }
-
-        return $this->post('/', $payload, (int) config('services.shufti.timeout', 60));
     }
 
     /**

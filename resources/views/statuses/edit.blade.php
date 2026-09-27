@@ -3,13 +3,15 @@
 @section('title') Edit Delivery Status @endsection
 
 @section('content')
+<x-admin.page-header title="Edit Delivery Status" subtitle="A step on the order timeline.">
+    <a href="{{ Asset('delivery_statuses') }}" class="btn btn-light co-btn-icon-text"><i class="feather icon-arrow-left"></i> Back</a>
+</x-admin.page-header>
 
-<section id="basic-input">
 <div class="row">
-<div class="col-md-8">
+<div class="col-xl-9">
 <div class="card">
 <div class="card-header">
-<h4 class="card-title">Edit Delivery Status</h4>
+<h4 class="card-title">Delivery Status details</h4>
 </div>
 
 {!! Form::model($data, ['url' => [$form_url],'files' => true,'method' => 'PATCH']) !!}
@@ -17,10 +19,7 @@
 @include('statuses.form')
 
 </form>
-
 </div>
 </div>
 </div>
-</section>
-
 @endsection

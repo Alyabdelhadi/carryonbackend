@@ -21,7 +21,7 @@ use App\Http\Controllers\WalletApiController;
 |
 */
 
-// signup and identity/verify each run a paid Shufti check: rate limited
+// rate limited: signup stores photos, identity/* open paid Shufti sessions
 Route::post('signup', [ApiController::class, 'signup'])->middleware('throttle:identity');
 Route::post('login', [ApiController::class, 'login'])->middleware('throttle:login');
 
@@ -45,7 +45,9 @@ Route::middleware('throttle:password-reset')->group(function () {
     Route::post('password/reset', [PasswordResetController::class, 'reset']);
 });
 
-// Identity verification (Shufti runs on the server; see IdentityController)
+// Identity verification after signup (Shufti live or manual review, see
+// IdentityController). Sending, receiving, carrying and adding trips need a
+// verified account while the admin requires it (app.verified).
 Route::post('identity/verify', [IdentityController::class, 'verify'])->middleware(['app.auth:user_id', 'throttle:identity']);
 Route::post('identity/live', [IdentityController::class, 'live'])->middleware(['app.auth:user_id', 'throttle:identity']);
 Route::get('identity/shufti/done', [IdentityController::class, 'shuftiDone']);
@@ -79,9 +81,9 @@ Route::delete('deleteAddress',[ApiController::class, 'deleteAddress'])->middlewa
 Route::get('getParcelCategories',[ApiController::class, 'getParcelCategories']);
 
 Route::get('parcelOrder', [ApiController::class, 'getParcelOrderById'])->middleware('app.auth');
-Route::post('createParcelOrder', [ApiController::class, 'createParcelOrder'])->middleware('app.auth:user_id');
+Route::post('createParcelOrder', [ApiController::class, 'createParcelOrder'])->middleware(['app.auth:user_id', 'app.verified']);
 Route::post('updateParcelOrder', [ApiController::class, 'updateParcelOrder'])->middleware('app.auth:user_id');
-Route::post('assignParcelOrder', [ApiController::class, 'assignParcelOrder'])->middleware('app.auth:user_id');
+Route::post('assignParcelOrder', [ApiController::class, 'assignParcelOrder'])->middleware(['app.auth:user_id', 'app.verified']);
 Route::post('pickupParcelOrder', [ApiController::class, 'pickupParcelOrder'])->middleware('app.auth:user_id');
 Route::post('unassignParcelOrder', [ApiController::class, 'unassignParcelOrder'])->middleware('app.auth'); // creator or carrier
 Route::post('deliverParcelOrder', [ApiController::class, 'deliverParcelOrder'])->middleware('app.auth:user_id');
@@ -97,7 +99,7 @@ Route::get('/countries/{id}/cities', [ApiController::class, 'getCitiesByCountry'
 
 
 
-Route::post('/trips', [ApiController::class, 'createTrip'])->middleware('app.auth:carrier_id');
+Route::post('/trips', [ApiController::class, 'createTrip'])->middleware(['app.auth:carrier_id', 'app.verified']);
 Route::put('/trips/{id}', [ApiController::class, 'updateTrip'])->middleware('app.auth:carrier_id'); // + owner check
 Route::delete('/trips/{id}', [ApiController::class, 'deleteTrip'])->middleware('app.auth'); // + owner check
 Route::get('/trips', [ApiController::class, 'getTrips']);

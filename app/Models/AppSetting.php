@@ -16,7 +16,9 @@ class AppSetting extends Model
     protected $fillable = ['key', 'value'];
 
     public const SHUFTI_ENABLED = 'shufti_enabled';
+    /** Legacy switch, replaced by IDENTITY_METHOD; only read as its default. */
     public const SHUFTI_LIVE = 'shufti_live';
+    public const IDENTITY_METHOD = 'identity_method';
     public const STAT_PACKAGES = 'stat_packages';
     public const STAT_USERS = 'stat_users';
     public const STAT_TREES = 'stat_trees_saved';
@@ -32,16 +34,62 @@ class AppSetting extends Model
     {
         return [
             self::SHUFTI_ENABLED => [
-                'label' => 'Shufti identity verification',
-                'help' => 'When on, signup checks the selfie and ID document with Shufti Pro before creating the account, accounts that are not verified must verify in the app before they can use it, and verified users show a badge. When off, the photos are still uploaded for manual review, no verification is run and nobody is blocked.',
+                'label' => 'Identity verification required',
+                'help' => 'When on, new and existing accounts can sign in and browse, but cannot send, receive or carry packages or add a trip until their identity is verified (by the method chosen below), and verified users show a badge. When off, nobody is blocked.',
                 'default' => true,
             ],
-            self::SHUFTI_LIVE => [
-                'label' => 'Live face verification (Shufti onsite)',
-                'help' => 'Only used while Shufti verification is on. When on, signup no longer checks uploaded photos: after creating the account the app opens Shufti\'s own page, which takes a live selfie with a liveness check and scans the ID. Uploaded photos are then refused for verification, so users on an app version without live verification must update. Check that onsite verification is enabled on the Shufti account before turning this on.',
-                'default' => false,
+        ];
+    }
+
+    /** How accounts get verified while verification is required. */
+    public const IDENTITY_SHUFTI = 'shufti';
+    public const IDENTITY_MANUAL = 'manual';
+
+    /**
+     * Settings with a fixed set of choices, shown as radio buttons.
+     * `default` is used while the admin has not saved one.
+     */
+    public static function choiceDefinitions(): array
+    {
+        return [
+            self::IDENTITY_METHOD => [
+                'label' => 'Verification method',
+                'help' => 'Nothing is checked at signup: users verify from the app when they first try to send, receive or carry.',
+                'options' => [
+                    self::IDENTITY_SHUFTI => 'Shufti Pro live verification: the app opens Shufti\'s page, which takes a live selfie with a liveness check and scans the ID. Check that onsite verification is enabled on the Shufti account first.',
+                    self::IDENTITY_MANUAL => 'Manual review: the user uploads a selfie and a photo of their ID, and you approve or reject them on the Users page (filter "Awaiting review").',
+                ],
+                // before this setting existed, "live" meant Shufti and photo checks are gone
+                'default' => fn () => static::getBool(self::SHUFTI_LIVE, false) ? self::IDENTITY_SHUFTI : self::IDENTITY_MANUAL,
             ],
         ];
+    }
+
+    public static function getChoice(string $key): string
+    {
+        $definition = static::choiceDefinitions()[$key];
+        $value = optional(static::find($key))->value;
+        if (!array_key_exists((string) $value, $definition['options'])) {
+            $default = $definition['default'];
+            return is_callable($default) ? $default() : $default;
+        }
+        return $value;
+    }
+
+    public static function setChoice(string $key, $value): void
+    {
+        if (array_key_exists((string) $value, static::choiceDefinitions()[$key]['options'])) {
+            static::updateOrCreate(['key' => $key], ['value' => (string) $value]);
+        }
+    }
+
+    public static function allChoices(): array
+    {
+        $out = [];
+        foreach (array_keys(static::choiceDefinitions()) as $key) {
+            $out[$key] = static::getChoice($key);
+        }
+        return $out;
     }
 
     /**

@@ -33,7 +33,17 @@ class AdminController extends Controller
 		
 		if (Auth::attempt(['username' => $username , 'password' => $password] ))
 		{
-			return Redirect::to('home')->with('message', 'Welcome! Your are logged in now.');
+			$user = Auth::user();
+			$home = $user->is_active ? $user->homeUrl() : null;
+			if (!$home)
+			{
+				// disabled, or a group without any page
+				Auth::logout();
+				return Redirect::to('login')->with('error', 'Your account has no access to the dashboard. Ask a super admin.')->withInput();
+			}
+			$request->session()->regenerate();
+			$user->forceFill(['last_login_at' => now()])->save();
+			return Redirect::to($home)->with('message', 'Welcome back, ' . $user->name . '!');
 		}
 		else
 		{

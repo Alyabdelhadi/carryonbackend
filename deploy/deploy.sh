@@ -61,7 +61,8 @@ for m in \
   2026_09_26_000100_add_password_reset_otp \
   2026_09_26_000200_create_app_refresh_tokens_table \
   2026_09_26_000300_weights_for_app \
-  2026_09_26_000400_tips_as_app_rewards; do
+  2026_09_26_000400_tips_as_app_rewards \
+  2026_09_27_000000_create_admin_groups; do
   "$PHP" artisan migrate --path="database/migrations/$m.php" --force
 done
 

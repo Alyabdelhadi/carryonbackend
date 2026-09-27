@@ -1,81 +1,42 @@
 @extends('layout.main')
 
-@section('title') Sliders @endsection
+@section('title') Home Sliders @endsection
 
 @section('content')
+<x-admin.page-header title="Home Sliders" subtitle="Banners at the top of the app home screen.">
+    <x-admin.add-button module="sliders" :href="Asset($link.'add')" />
+</x-admin.page-header>
 
-<section id="basic-input">
-<div class="row">
-<div class="col-md-12">
 <div class="card">
-
-<div class="row" id="table-head">
-<div class="col-12">
-<div class="card">
-<div class="card-content">
-
-<div class="card-body"><h4 class="card-title">Sliders<a href="{{ Asset($link.'add') }}" class="btn btn-primary" style="float: right">Add New</a></h4> </div>
-<div class="table-responsive">
-<table class="table mb-0">
-<thead >
-<tr>
-<th>Sort No</th>
-<th>Image</th>
-<th>Arabic Image</th>
-<th>Status</th>
-<th class="text-right">Options</th>
-</tr>
-</thead>
-<tbody>
-
-@foreach($data as $row)
-<tr>
-<td width="10%">{{ $row->sort_no }}</td>
-<td width="17%">@if($row->img) <img src="{{ Asset('upload/sliders/'.$row->img) }}" height="100px"> @endif</td>
-<td width="17%">@if($row->img_ar) <img src="{{ Asset('upload/sliders/'.$row->img_ar) }}" height="100px"> @else <span class="text-muted">—</span> @endif</td>
-<td width="17%">
-
-<a onclick="return confirm('Are you sure?')" href="{{ Asset('sliderStatus?id='.$row->id) }}">
-@if($row->status == 1)
-
-<div class="chip chip-success mr-1">
-<div class="chip-body">
-<span class="chip-text">Active</span>
+    @if(count($data) === 0)
+        <x-admin.empty icon="image" title="No sliders yet" />
+    @else
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Sort No</th>
+                    <th>Image</th>
+                    <th>Arabic Image</th>
+                    <th>Status</th>
+                    <th class="text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach($data as $row)
+                <tr>
+                    <td class="text-muted">{{ $row->sort_no }}</td>
+                    <td>@if($row->img) <img src="{{ Asset('upload/sliders/'.$row->img) }}" height="48" style="max-width:160px" alt="Slider"> @else <span class="text-muted">—</span> @endif</td>
+                    <td>@if($row->img_ar) <img src="{{ Asset('upload/sliders/'.$row->img_ar) }}" height="48" style="max-width:160px" alt="Arabic slider"> @else <span class="text-muted">—</span> @endif</td>
+                    <td><x-admin.status-toggle module="sliders" :url="Asset('sliderStatus?id='.$row->id)" :active="$row->status == 1" /></td>
+                    <td class="text-right">
+                        <x-admin.row-actions module="sliders" :edit="Asset($link.$row->id.'/edit')" :delete="Asset($link.'delete/'.$row->id)" />
+                    </td>
+                </tr>
+            @endforeach
+            </tbody>
+        </table>
+    </div>
+    @endif
 </div>
-</div>
-
-@else
-
-<div class="chip chip-danger mr-1">
-<div class="chip-body">
-<span class="chip-text">Inactive</span>
-</div>
-</div>
-
-@endif
-</a>
-
-</td>
-<td width="17%" class="text-right">
-
-<a class="btn btn-icon btn-info mr-1 mb-1 waves-effect waves-light" data-toggle="tooltip" data-placement="top" data-original-title="@lang('app.edit')" href="{{ Asset($link.$row->id.'/edit') }}"><i class="feather icon-edit"></i></a>
-
-<a type="button" class="btn btn-icon btn-danger mr-1 mb-1 waves-effect waves-light" data-toggle="tooltip" data-placement="top" data-original-title="@lang('app.delete')" onclick="confirmAlert('{{ Asset($link.'delete/'.$row->id) }}')"><i class="feather icon-trash-2"></i></a>
-
-</td>
-</tr>
-@endforeach
-
-</tbody>
-</table>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</section>
-
 @endsection

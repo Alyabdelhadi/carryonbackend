@@ -3,7 +3,7 @@
     
     <div class="tab-content">
     
-    <h4>City</h4>
+    <h5 class="font-weight-bold mt-2 mb-1 pb-50 border-bottom">City</h5>
     
     <div class="form-row">
     <div class="form-group col-md-4">
@@ -32,7 +32,7 @@
     </div>
     </div>
     
-    <h4>Homepage, Search, Menu Item, Cart</h4>
+    <h5 class="font-weight-bold mt-2 mb-1 pb-50 border-bottom">Homepage, Search, Menu Item, Cart</h5>
     
     <div class="form-row">
     <div class="form-group col-md-4">
@@ -262,7 +262,7 @@
     
     </div>
     
-    <h4>Login,Signup & Forgot Password</h4>
+    <h5 class="font-weight-bold mt-2 mb-1 pb-50 border-bottom">Login,Signup & Forgot Password</h5>
     
     <div class="form-row">
     <div class="form-group col-md-4">
@@ -437,7 +437,7 @@
     </div>
     
     
-    <h4>Checkout Page</h4>
+    <h5 class="font-weight-bold mt-2 mb-1 pb-50 border-bottom">Checkout Page</h5>
     
     <div class="form-row">
     <div class="form-group col-md-4">
@@ -685,7 +685,7 @@
     
     </div>
     
-    <h4>My Account, My Orders</h4>
+    <h5 class="font-weight-bold mt-2 mb-1 pb-50 border-bottom">My Account, My Orders</h5>
     
     <div class="form-row">
     <div class="form-group col-md-4">
@@ -795,7 +795,7 @@
     
     </div>
     
-    <h4>Other Pages & Navigation</h4>
+    <h5 class="font-weight-bold mt-2 mb-1 pb-50 border-bottom">Other Pages & Navigation</h5>
     
     <div class="form-row">
     <div class="form-group col-md-4">
@@ -859,7 +859,7 @@
     </div>
     </div>
     
-    <h4>Delivery App</h4>
+    <h5 class="font-weight-bold mt-2 mb-1 pb-50 border-bottom">Delivery App</h5>
     
     <div class="form-row">
     <div class="form-group col-md-4">
@@ -1008,7 +1008,7 @@
     </div>
     </div>
     
-    <h4>Store App</h4>
+    <h5 class="font-weight-bold mt-2 mb-1 pb-50 border-bottom">Store App</h5>
     
     <div class="form-row">
     <div class="form-group col-md-4">
@@ -1225,7 +1225,7 @@
     </div>
     </div>
     
-    <h4>Other Info</h4>
+    <h5 class="font-weight-bold mt-2 mb-1 pb-50 border-bottom">Other Info</h5>
     
     <div class="row">
     <div class="form-group col-md-4">
@@ -1947,6 +1947,10 @@
     
     </div>
     
-    <button type="submit" class="btn btn-success btn-cta">Save changes</button><br><br>
+    @can('texts.edit')
+    <div class="d-flex justify-content-end border-top pt-2 mt-1" style="position:sticky;bottom:0;background:var(--co-surface);padding-bottom:16px;z-index:2">
+    <button type="submit" class="btn btn-primary co-btn-icon-text"><i class="feather icon-check"></i> Save changes</button>
+    </div>
+    @endcan
     </div>
     </div>

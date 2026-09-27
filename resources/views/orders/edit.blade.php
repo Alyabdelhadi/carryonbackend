@@ -1,20 +1,35 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Edit Parcel Order</title>
-    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
+@extends('layout.main')
 
-<div class="container mt-5">
-  <div class="card">
-    <div class="card-header">Edit Package #{{ $order->id }}</div>
-    <div class="card-body">
+@section('title') Edit Package #{{ $order->id }} @endsection
+
+@section('css')
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<style>
+  .select2-container--default .select2-selection--single { min-height: 42px; border: 1px solid var(--co-border-strong); border-radius: var(--co-radius-sm); }
+  .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 40px; padding-left: 13px; }
+  .select2-container--default .select2-selection--single .select2-selection__arrow { height: 40px; }
+  .select2-dropdown { border-color: var(--co-border-strong); border-radius: var(--co-radius-sm); }
+</style>
+@endsection
+
+@section('content')
+
+<x-admin.page-header :title="'Edit Package #' . $order->id" subtitle="Change the order details, status, carrier or payment.">
+  <a href="{{ Asset('parcel_order_view?id='.$order->id) }}" class="btn btn-light co-btn-icon-text"><i class="feather icon-eye"></i> View</a>
+  <a href="{{ Asset('parcel_order') }}" class="btn btn-light co-btn-icon-text"><i class="feather icon-arrow-left"></i> Back</a>
+</x-admin.page-header>
+
+@if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
+
+<div class="row">
+  <div class="col-xl-8">
       <form method="POST" action="{{ route('parcel.update', $order->id) }}">
         @csrf
         @method('PUT')
 
+        <div class="card">
+        <div class="card-header"><h4 class="card-title"><i class="feather icon-user text-muted mr-50"></i> Owner &amp; category</h4></div>
+        <div class="card-body">
         <div class="form-row">
 
           <!-- User Dropdown -->
@@ -43,8 +58,14 @@
             </select>
           </div>
 
-          <!-- Sender Information -->
-          <div class="col-md-12"><h5 class="mt-4">Sender Details</h5></div>
+        </div>
+        </div>
+        </div>
+
+        <div class="card">
+        <div class="card-header"><h4 class="card-title"><i class="feather icon-send text-muted mr-50"></i> Sender</h4></div>
+        <div class="card-body">
+        <div class="form-row">
 
           <div class="form-group col-md-6">
             <label for="s_name">Name</label>
@@ -96,8 +117,14 @@
             <input type="text" class="form-control" name="s_address[apartment]" value="{{ old('s_address.apartment', $order->s_apartment) }}">
           </div>
 
-          <!-- Receiver Information -->
-          <div class="col-md-12"><h5 class="mt-4">Receiver Details</h5></div>
+        </div>
+        </div>
+        </div>
+
+        <div class="card">
+        <div class="card-header"><h4 class="card-title"><i class="feather icon-inbox text-muted mr-50"></i> Receiver</h4></div>
+        <div class="card-body">
+        <div class="form-row">
 
           <div class="form-group col-md-6">
             <label for="r_name">Name</label>
@@ -150,8 +177,16 @@
           </div>
 
 
+        </div>
+        </div>
+        </div>
+
+        <div class="card">
+        <div class="card-header"><h4 class="card-title"><i class="feather icon-package text-muted mr-50"></i> Status, carrier &amp; package</h4></div>
+        <div class="card-body">
+        <div class="form-row">
             <!-- Status -->
-            <div class="form-group col-md-6 mt-4">
+            <div class="form-group col-md-6">
               <label for="status">Status</label>
               <select class="form-control" id="status" name="status" required>
                 @foreach(['Unassigned', 'Assigned', 'Picked', 'Delivered', 'Cancelled', 'Expired'] as $status)
@@ -161,7 +196,7 @@
             </div>
             
             <!-- Carrier -->
-            <div class="form-group col-md-6 mt-4" id="carrier-wrapper">
+            <div class="form-group col-md-6" id="carrier-wrapper">
               <label for="carrier_id">Carrier</label>
               <select class="form-control select2" id="carrier_id" name="carrier_id">
                 <option value="">Select Carrier</option>
@@ -206,22 +241,24 @@
 
         </div>
 
-        <button type="submit" class="btn btn-primary mr-1 mb-1 waves-effect waves-light">Update Package</button>
+        </div>
+        <div class="card-footer d-flex justify-content-end">
+          <button type="submit" class="btn btn-primary co-btn-icon-text"><i class="feather icon-check"></i> Update Package</button>
+        </div>
+        </div>
       </form>
-    </div>
   </div>
 
-  <div class="card mt-3">
-    <div class="card-header">Payment</div>
-    <div class="card-body">
-      @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
-      @if(session('error'))<div class="alert alert-danger">{{ session('error') }}</div>@endif
+  <div class="col-xl-4">
+    <div class="card">
+      <div class="card-header"><h4 class="card-title"><i class="feather icon-credit-card text-muted mr-50"></i> Payment</h4></div>
+      <div class="card-body">
       <div class="row">
-        <div class="col-md-3"><small class="text-muted">Method</small><br><strong>{{ $order->isOnlinePayment() ? 'Card (Stripe)' : 'Cash on delivery' }}</strong></div>
-        <div class="col-md-3"><small class="text-muted">Status</small><br><strong>{{ $order->paymentLabel() }}</strong></div>
+        <div class="col-6 mb-1"><small class="text-muted">Method</small><br><strong>{{ $order->isOnlinePayment() ? 'Card (Stripe)' : 'Cash on delivery' }}</strong></div>
+        <div class="col-6 mb-1"><small class="text-muted">Status</small><br><strong>{{ $order->paymentLabel() }}</strong></div>
         @if($order->isOnlinePayment())
-          <div class="col-md-3"><small class="text-muted">Charged</small><br><strong>{{ number_format($order->payment_amount, 2) }} {{ $order->payment_currency }}</strong></div>
-          <div class="col-md-3"><small class="text-muted">Commission / carrier</small><br><strong>{{ number_format($order->commission_amount, 2) }} / {{ number_format($order->carrier_earning, 2) }}</strong></div>
+          <div class="col-6 mb-1"><small class="text-muted">Charged</small><br><strong>{{ number_format($order->payment_amount, 2) }} {{ $order->payment_currency }}</strong></div>
+          <div class="col-6 mb-1"><small class="text-muted">Commission / carrier</small><br><strong>{{ number_format($order->commission_amount, 2) }} / {{ number_format($order->carrier_earning, 2) }}</strong></div>
           <div class="col-md-12 mt-2">
             <small class="text-muted">
               @if($order->payment_reference) Stripe: {{ $order->payment_reference }} @endif
@@ -232,34 +269,28 @@
           </div>
           @if(in_array($order->payment_status, ['paid', 'refund_pending']))
             <div class="col-md-12 mt-3">
-              <form method="POST" action="{{ route('parcel.refund', $order->id) }}" onsubmit="return confirm('Refund {{ number_format($order->payment_amount, 2) }} {{ $order->payment_currency }} to the sender through Stripe?')">
+              @can('orders.edit')
+              <form method="POST" action="{{ route('parcel.refund', $order->id) }}" data-co-confirm="Refund {{ number_format($order->payment_amount, 2) }} {{ $order->payment_currency }} to the sender through Stripe?">
                 @csrf
                 <button type="submit" class="btn btn-outline-danger">Refund sender</button>
                 @if($order->status === 'Delivered')
                   <small class="text-muted ml-2">The carrier's wallet was already credited; adjust it from the Wallets page if needed.</small>
                 @endif
               </form>
+              @endcan
             </div>
           @endif
         @endif
+      </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- JS -->
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-<script>
-  $(document).ready(function () {
-    $('.select2').select2({
-      width: '100%',
-      placeholder: 'Select an option',
-      allowClear: true
-    });
-  });
-</script>
+@endsection
 
+@section('js')
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
   $(document).ready(function () {
     $('.select2').select2({
@@ -296,20 +327,4 @@
     });
   });
 </script>
-
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
-@if(session('success'))
-<script>
-  Swal.fire({
-    icon: 'success',
-    title: 'Success!',
-    text: '{{ session("success") }}',
-    confirmButtonText: 'OK',
-    confirmButtonColor: '#3085d6'
-  });
-</script>
-@endif
-
-</body>
-</html>
+@endsection

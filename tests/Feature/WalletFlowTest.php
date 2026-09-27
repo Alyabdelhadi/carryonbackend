@@ -62,6 +62,7 @@ class WalletFlowTest extends TestCase
         $u->password = 'secret';
         $u->role = 1;
         $u->status = 1;
+        $u->identity_status = AppUser::IDENTITY_VERIFIED; // app.verified gate
         $u->save();
         return $u;
     }

@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 
 class Slider2Controller extends Controller
 {
-    public $folder  = "sliders.";
+    public $folder  = "sliders2.";
     
 	/*
 	|---------------------------------------

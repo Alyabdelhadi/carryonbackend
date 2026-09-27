@@ -117,7 +117,7 @@ class AppUser extends Model implements AuthenticatableContract
         ];
     }
 
-    /** Shufti accepted the user's selfie and ID. */
+    /** Shufti or the admin accepted the user's selfie and ID. */
     public function getIsVerifiedAttribute(): bool
     {
         return ($this->attributes['identity_status'] ?? null) === self::IDENTITY_VERIFIED;
@@ -125,8 +125,7 @@ class AppUser extends Model implements AuthenticatableContract
 
     /**
      * Moves an uploaded selfie into place and returns the file name.
-     * Pass $shrink = false when Shufti still has to read the full-size
-     * photo, then call [shrinkUploads] afterwards.
+     * Pass $shrink = false to keep the full-size file.
      */
     public static function storeSelfie(UploadedFile $file, bool $shrink = true): string
     {
@@ -166,17 +165,6 @@ class AppUser extends Model implements AuthenticatableContract
             throw new \App\Exceptions\InvalidUploadException('Please upload a photo (JPG, PNG or HEIC)' . ($allowPdf ? ' or a PDF' : '') . '.');
         }
         return $ext;
-    }
-
-    /** Resizes photos stored with $shrink = false, once Shufti has seen them. */
-    public static function shrinkUploads(?string $selfie, ?string $identity): void
-    {
-        if ($selfie) {
-            self::shrink(self::SELFIE_DIR . '/' . $selfie);
-        }
-        if ($identity) {
-            self::shrink(self::IDENTITY_DIR . '/' . $identity);
-        }
     }
 
     /** Deletes photos stored for an attempt that did not create or update an account. */
@@ -257,28 +245,12 @@ class AppUser extends Model implements AuthenticatableContract
             $chkCode = null;
         }
     
-        // Photos first: with Shufti on, the account only exists once the
-        // selfie and ID passed (or are still being checked). In live mode
-        // the photos are only the profile picture / manual-review copy and
-        // the account verifies afterwards on Shufti's page.
-        $verify = IdentityVerificationService::enabled() && !IdentityVerificationService::liveMode();
-        $selfie = isset($data['selfie']) ? self::storeSelfie($data['selfie'], !$verify) : null;
-        $identity = isset($data['identity']) ? self::storeIdentity($data['identity'], !$verify) : null;
-
-        $attempt = null;
-        if ($verify) {
-            if (!$selfie || !$identity) {
-                self::discardUploads($selfie, $identity);
-                return ['msg' => 'error', 'error' => 'Please upload both a selfie and an identity document.'];
-            }
-            $service = app(IdentityVerificationService::class);
-            $attempt = $service->check('signup', $selfie, $identity, $email, null, request()->ip());
-            if (IdentityVerificationService::isRejection($attempt->status)) {
-                self::discardUploads($selfie, $identity);
-                return self::identityError($attempt);
-            }
-            self::shrinkUploads($selfie, $identity);
-        }
+        // No identity check at signup: the account verifies afterwards from
+        // the app (Shufti live page or manual review) and cannot send,
+        // receive or carry until then (EnsureIdentityVerified).
+        $selfie = isset($data['selfie']) ? self::storeSelfie($data['selfie']) : null;
+        // full size: the admin has to be able to read it
+        $identity = isset($data['identity']) ? self::storeIdentity($data['identity'], false) : null;
 
         $add = new AppUser;
         $add->name = ucwords(strtolower($data['name']));
@@ -306,8 +278,10 @@ class AppUser extends Model implements AuthenticatableContract
 
         $add->save();
 
-        if ($attempt) {
-            app(IdentityVerificationService::class)->applyToUser($add, $attempt);
+        // app builds that still send both photos at signup: in manual mode
+        // they are the documents for the admin to review
+        if ($selfie && $identity && IdentityVerificationService::manualMode()) {
+            app(IdentityVerificationService::class)->submitManual($add, $selfie, $identity, request()->ip());
         }
     
         $add->makeHidden(['password']);
@@ -530,7 +504,7 @@ class AppUser extends Model implements AuthenticatableContract
             ->get();
     }
     
-    public function getAllByRolePaginated($role, $perPage = 50, $search = null, $status = null)
+    public function getAllByRolePaginated($role, $perPage = 50, $search = null, $status = null, $identityStatus = null)
     {
         $query = $this->where('app_users.role', $role)
             ->select('app_users.*')
@@ -571,6 +545,10 @@ class AppUser extends Model implements AuthenticatableContract
     
         if ($status !== null && in_array($status, [0, 1, '0', '1'], true)) {
             $query->where('app_users.status', $status);
+        }
+
+        if ($identityStatus !== null) {
+            $query->where('app_users.identity_status', $identityStatus);
         }
     
         return $query->paginate($perPage);

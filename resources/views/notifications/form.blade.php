@@ -1,34 +1,26 @@
-<div class="card-content">
+<div class="card">
+    <div class="card-header"><h4 class="card-title">Template</h4></div>
     <div class="card-body">
-
-        <div class="tab-content">
-            <div class="tab-pane active" id="tabs_0" aria-labelledby="home-tab" role="tabpanel">
-                
-                <p>You can use the following variables: <b>:userfirstname</b> <b>:userfullname</b> <b>:carrierfirstname</b> <b>:carrierfullname</b> <b>:fromcity</b> <b>:tocity</b> <b>:packagetype</b> <b>:packagenumber</b></p>
-
-                <div class="form-row">
-                    <div class="form-group col-md-6">
-                        <label for="event">Event</label>
-                        {!! Form::text('event', null, ['class' => 'form-control', 'required']) !!}
-                    </div>
-
-                    <div class="form-group col-md-6">
-                        <label for="title">Title</label>
-                        {!! Form::text('title', null, ['class' => 'form-control', 'required']) !!}
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group col-md-12">
-                        <label for="body">Body</label>
-                        {!! Form::textarea('body', null, ['class' => 'form-control', 'rows' => 5, 'required']) !!}
-                    </div>
-                </div>
-
-            </div>
+        <div class="alert alert-info">
+            <i class="feather icon-info mr-50"></i> Variables you can use: <b>:userfirstname</b> <b>:userfullname</b> <b>:carrierfirstname</b> <b>:carrierfullname</b> <b>:fromcity</b> <b>:tocity</b> <b>:packagetype</b> <b>:packagenumber</b>
         </div>
 
-        <button type="submit" class="btn btn-primary mr-1 mb-1 waves-effect waves-light">Save</button>
-
+        <div class="form-row">
+            <div class="form-group col-md-6">
+                <label for="event">Event</label>
+                {!! Form::text('event', null, ['class' => 'form-control', 'id' => 'event', 'required']) !!}
+            </div>
+            <div class="form-group col-md-6">
+                <label for="title">Title</label>
+                {!! Form::text('title', null, ['class' => 'form-control', 'id' => 'title', 'required']) !!}
+            </div>
+            <div class="form-group col-md-12 mb-0">
+                <label for="body">Body</label>
+                {!! Form::textarea('body', null, ['class' => 'form-control', 'id' => 'body', 'rows' => 6, 'required']) !!}
+            </div>
+        </div>
+    </div>
+    <div class="card-footer d-flex justify-content-end">
+        <button type="submit" class="btn btn-primary co-btn-icon-text"><i class="feather icon-check"></i> Save</button>
     </div>
 </div>

@@ -9,9 +9,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Identity verification for existing accounts (the app's "Verify your
- * identity" screen) and the Shufti callback. Signup runs its own check in
- * AppUser::signup.
+ * Identity verification after signup (the app's "Verify your identity"
+ * screen): Shufti live sessions, uploads for manual review, and the
+ * Shufti callback.
  */
 class IdentityController extends Controller
 {
@@ -19,14 +19,19 @@ class IdentityController extends Controller
     {
     }
 
-    /** POST api/identity/verify (multipart: user_id, selfie, identity) */
+    /**
+     * POST api/identity/verify (multipart: user_id, selfie, identity):
+     * manual mode only, files the photos for the admin to review.
+     */
     public function verify(Request $request)
     {
         $user = AppUser::find($request->input('user_id'));
         if (!$user) {
             return response()->json(['msg' => 'Oops! Invalid id.']);
         }
-        if ($user->is_verified || !IdentityVerificationService::enabled()) {
+        // nothing to do, or the admin has not decided on the last upload yet
+        if ($user->is_verified || !IdentityVerificationService::enabled()
+            || $user->identity_status === AppUser::IDENTITY_PENDING) {
             return response()->json(['msg' => 'done', 'user' => $this->userJson($user)]);
         }
         if (IdentityVerificationService::liveMode()) {
@@ -37,21 +42,9 @@ class IdentityController extends Controller
             return response()->json(['msg' => 'error', 'error' => 'Please upload both a selfie and an identity document.']);
         }
 
-        $selfie = AppUser::storeSelfie($request->file('selfie'), false);
-        $identity = AppUser::storeIdentity($request->file('identity'), false);
-        $attempt = $this->identity->check('reverify', $selfie, $identity, $user->email, $user->id, $request->ip());
-
-        if (IdentityVerificationService::isRejection($attempt->status)) {
-            AppUser::discardUploads($selfie, $identity);
-            // a failed retry must not undo a check that is still pending
-            if ($user->identity_status !== AppUser::IDENTITY_PENDING) {
-                $this->identity->applyToUser($user, $attempt);
-            }
-            return response()->json(AppUser::identityError($attempt));
-        }
-
-        AppUser::shrinkUploads($selfie, $identity);
-        $this->identity->applyToUser($user, $attempt);
+        $selfie = AppUser::storeSelfie($request->file('selfie'));
+        $identity = AppUser::storeIdentity($request->file('identity'), false); // full size, for the admin to read
+        $this->identity->submitManual($user, $selfie, $identity, $request->ip());
         return response()->json(['msg' => 'done', 'user' => $this->userJson($user->fresh())]);
     }
 

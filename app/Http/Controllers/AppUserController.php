@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AppUser;
+use App\Services\IdentityVerificationService;
 use Illuminate\Http\Request;
 use App\Models\EmailTemplate;
 use App\Services\TemplateService;
@@ -60,6 +61,21 @@ class AppUserController extends Controller
             'link' => 'users/inactive',
             'title' => 'Inactive Users',
         ]);
+    }
+
+    /** Accounts whose selfie + ID wait for a decision (manual review, or Shufti still deciding). */
+    public function pendingVerification()
+    {
+        $res = new AppUser;
+
+        $perPage = request()->get('per_page', 50);
+        $search = request()->get('search');
+
+        return view($this->folder . 'index', [
+            'data' => $res->getAllByRolePaginated(1, $perPage, $search, null, AppUser::IDENTITY_PENDING),
+            'link' => 'users/',
+            'title' => 'Awaiting identity review',
+        ]);
     }	
 	
 	/*
@@ -114,11 +130,24 @@ class AppUserController extends Controller
 	|@Delete Data
 	|---------------------------------------------
 	*/
-	public function delete($id)
+	/*
+	|---------------------------------------------
+	|@Delete the user and everything they own
+	|(see App\Services\AppUserPurgeService)
+	|---------------------------------------------
+	*/
+	public function delete($id, \App\Services\AppUserPurgeService $purge)
 	{
-		AppUser::where('id',$id)->delete();
+		$user = AppUser::find($id);
+		if (!$user) {
+			return redirect(env('admin').'/users')->with('error', 'User not found.');
+		}
+		if ($reason = $purge->blocker($user)) {
+			return redirect()->back()->with('error', 'Cannot delete ' . $user->name . ': ' . $reason);
+		}
+		$removed = $purge->purge($user);
 
-		return redirect(env('admin').'/users')->with('message','Record Deleted Successfully.');
+		return redirect(env('admin').'/users')->with('message', $user->name . ' was deleted with ' . $removed['orders'] . ' package(s) and ' . $removed['trips'] . ' trip(s).');
 	}
 	
 	/*
@@ -146,6 +175,12 @@ class AppUserController extends Controller
 		]);
 	}
 
+	/**
+	 * GET userVerification?id=&action=approve|reject|revoke
+	 * approve / reject settle a pending review (the user gets a push);
+	 * revoke sends a verified user back to "not verified". Without an
+	 * action the link toggles, as before.
+	 */
 	public function userVerification()
 	{
 		$user = AppUser::find($_GET['id'] ?? null);
@@ -153,16 +188,20 @@ class AppUserController extends Controller
 			return redirect(env('admin') . '/users')->with('error', 'User not found.');
 		}
 
-		if ($user->is_verified) {
+		$action = $_GET['action'] ?? ($user->is_verified ? 'revoke' : 'approve');
+		if ($action === 'revoke') {
 			$user->identity_status = null;
 			$user->identity_verified_at = null;
+			$user->save();
 			$message = 'Identity verification removed. The user must verify again in the app.';
+		} elseif ($action === 'approve' || $action === 'reject') {
+			app(IdentityVerificationService::class)->review($user, $action === 'approve');
+			$message = $action === 'approve'
+				? 'User marked as verified.'
+				: 'Verification rejected. The user will be asked to upload new photos.';
 		} else {
-			$user->identity_status = AppUser::IDENTITY_VERIFIED;
-			$user->identity_verified_at = now();
-			$message = 'User marked as verified.';
+			return redirect()->back()->with('error', 'Unknown action.');
 		}
-		$user->save();
 
 		return redirect()->back()->with('message', $message);
 	}

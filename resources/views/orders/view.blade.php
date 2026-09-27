@@ -1,103 +1,89 @@
-<h1 align="center">Package Detail #{{ $data->id }}</h1>
+@extends('layout.main')
 
+@section('title') Package #{{ $data->id }} @endsection
 
-<script type="text/javascript">
-function printDiv(divName) {
-     var printContents = document.getElementById(divName).innerHTML;
-     var originalContents = document.body.innerHTML;
-
-     document.body.innerHTML = printContents;
-
-     window.print();
-
-     document.body.innerHTML = originalContents;
+@section('css')
+<style>
+@media print {
+    .co-sidebar, .co-topbar, .co-page-actions, .co-toast { display: none !important; }
+    .co-main { margin: 0 !important; }
+    .co-content { padding: 0 !important; }
+    body.co-body .card { box-shadow: none; break-inside: avoid; }
 }
-</script>
-
-<div id="printableArea">
-
-<title>Parcel Detail #{{ $data->id }}</title>
-
-<style type="text/css">
-td
-{
-	padding: 10px 10px;
-}
+.co-detail dt { color: var(--co-muted); font-weight: 500; font-size: 13px; }
+.co-detail dd { font-weight: 600; margin-bottom: 12px; }
 </style>
+@endsection
 
-<table width="80%" align="center" border="1" cellpadding="0" cellspacing="0">
+@section('content')
 
-<tr>
-<td width="50%">
-    <b>Package ID</b>
-    <p>{{ $data->id }}</p>
-</td>
+<x-admin.page-header :title="'Package #' . $data->id" :subtitle="'Created ' . date('d-M-Y', strtotime($data->created_at))">
+    @can('orders.edit')
+        <a href="{{ route('parcel.edit', $data->id) }}" class="btn btn-light co-btn-icon-text"><i class="feather icon-edit-2"></i> Edit</a>
+    @endcan
+    <button type="button" class="btn btn-primary co-btn-icon-text" onclick="window.print()"><i class="feather icon-printer"></i> Print</button>
+</x-admin.page-header>
 
-<td width="50%">
-    <b>Created On</b>
-    <p>{{ date('d-M-Y',strtotime($data->created_at)) }}</p>
-    @if($data->order_date)
-    <p style="color:red">Needed Before: {{ date('d-M-Y',strtotime($data->order_date)) }}</p>
-    @endif
-</td>
+<div class="row">
+    <div class="col-lg-8">
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header"><h4 class="card-title"><i class="feather icon-send text-muted mr-50"></i> Sender</h4></div>
+                    <div class="card-body">
+                        <dl class="co-detail mb-0">
+                            <dt>Name</dt><dd>{{ $data->s_name }}</dd>
+                            <dt>Phone</dt><dd>{{ $data->s_phone }}</dd>
+                            <dt>Address name</dt><dd>{{ $data->s_addressname ?: '—' }}</dd>
+                            <dt>City</dt><dd>{{ $data->s_city }}, {{ $data->s_country }}</dd>
+                            <dt>Street</dt><dd>{{ $data->s_street ?: '—' }}</dd>
+                            <dt>Building</dt><dd>{{ $data->s_building ?: '—' }}</dd>
+                            <dt>Apartment</dt><dd class="mb-0">{{ $data->s_apartment ?: '—' }}</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header"><h4 class="card-title"><i class="feather icon-inbox text-muted mr-50"></i> Receiver</h4></div>
+                    <div class="card-body">
+                        <dl class="co-detail mb-0">
+                            <dt>Name</dt><dd>{{ $data->r_name }}</dd>
+                            <dt>Phone</dt><dd>{{ $data->r_phone }}</dd>
+                            <dt>Address name</dt><dd>{{ $data->r_addressname ?: '—' }}</dd>
+                            <dt>City</dt><dd>{{ $data->r_city }}, {{ $data->r_country }}</dd>
+                            <dt>Street</dt><dd>{{ $data->r_street ?: '—' }}</dd>
+                            <dt>Building</dt><dd>{{ $data->r_building ?: '—' }}</dd>
+                            <dt>Apartment</dt><dd class="mb-0">{{ $data->r_apartment ?: '—' }}</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h4 class="card-title">Notes</h4></div>
+            <div class="card-body">{{ $data->notes ?: 'No notes.' }}</div>
+        </div>
+    </div>
 
-</tr>
-
-<tr>
-<td colspan="4">
-
-<table width="100%" border="0" cellpadding="0" cellspacing="0">
-
-<tr>
-<td width="50%"><b>Sender Detail</b>
-
-<p>Name: {{ $data->s_name }}</p>
-<p>Phone: {{ $data->s_phone }}</p>
-<p>Address Name: {{ $data->s_addressname }}</p>
-<p>City: {{ $data->s_city }}, {{ $data->s_country }}</p>
-<p>Street: {{ $data->s_street }}</p>
-<p>Building: {{ $data->s_building }}</p>
-<p>Apartment: {{ $data->s_apartment }}</p>
-
-</td>
-<td width="50%"><b>Receiver Detail</b>
-
-<p>Name: {{ $data->r_name }}</p>
-<p>Phone: {{ $data->r_phone }}</p>
-<p>Address Name: {{ $data->r_addressname }}</p>
-<p>City: {{ $data->r_city }}, {{ $data->r_country }}</p>
-<p>Street: {{ $data->r_street }}</p>
-<p>Building: {{ $data->r_building }}</p>
-<p>Apartment: {{ $data->r_apartment }}</p>
-
-</td>
-</tr>
-
-</table>
-
-</td>
-</tr>
-<tr>
-<td width="20%"><b>Parcel Type</b></td>
-<td width="30%">{{ $cate->name }}</td>
-</tr>
-
-<tr>
-<td width="20%"><b>Price</b></td>
-<td width="30%">${{ $data->price }}</td>
-</tr>
-
-<tr>
-<td width="20%"><b>Reward</b></td>
-<td width="30%">${{ $data->amount }} <small class="text-muted">({{ $data->paymentLabel() }})</small></td>
-</tr>
-
-
-
-<tr>
-<td width="20%"><b>Notes</b></td>
-<td width="80%">{{ $data->notes }}</td>
-</tr>
-
-</table>
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header"><h4 class="card-title"><i class="feather icon-package text-muted mr-50"></i> Package</h4></div>
+            <div class="card-body">
+                <dl class="co-detail mb-0">
+                    <dt>Package ID</dt><dd>#{{ $data->id }}</dd>
+                    <dt>Created on</dt><dd>{{ date('d-M-Y',strtotime($data->created_at)) }}</dd>
+                    @if($data->order_date)
+                        <dt>Needed before</dt><dd class="text-danger">{{ date('d-M-Y',strtotime($data->order_date)) }}</dd>
+                    @endif
+                    <dt>Status</dt><dd><span class="badge badge-info">{{ $data->status }}</span></dd>
+                    <dt>Parcel type</dt><dd>{{ $cate->name ?? '—' }}</dd>
+                    <dt>Price</dt><dd>${{ $data->price }}</dd>
+                    <dt>Reward</dt><dd class="mb-0">${{ $data->amount }} <small class="text-muted">({{ $data->paymentLabel() }})</small></dd>
+                </dl>
+            </div>
+        </div>
+    </div>
 </div>
+
+@endsection

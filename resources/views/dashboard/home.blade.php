@@ -2,260 +2,93 @@
 
 @section('title') Dashboard @endsection
 
+@php
+    // one tile: [label, value, feather icon, tone, url, permission]
+    $tile = function ($label, $value, $icon, $tone, $url = null, $ability = null) {
+        return compact('label', 'value', 'icon', 'tone', 'url', 'ability');
+    };
+    $sections = [
+        'Overview' => [
+            $tile('Users', $data['user'], 'users', 'ink', 'users', 'users.view'),
+            $tile('Carriers', $data['carriers'], 'truck', 'leaf', 'users', 'users.view'),
+            $tile('Trips', $data['trips'], 'navigation', 'sky', 'trips', 'trips.view'),
+            $tile('Packages', $data['order'], 'package', 'info', 'parcel_order?status=all', 'orders.view'),
+            $tile('Countries', $data['countries_covered'], 'globe', 'leaf', 'countries', 'countries.view'),
+            $tile('Cities', $data['cities_covered'], 'map-pin', 'sky', 'cities', 'cities.view'),
+        ],
+        'Users' => [
+            $tile('Active', $data['active_users'], 'user-check', 'leaf', 'users/active', 'users.view'),
+            $tile('Inactive', $data['inactive_users'], 'user-x', 'danger', 'users/inactive', 'users.view'),
+        ],
+        'Packages by status' => [
+            $tile('Unassigned', $data['unassign'], 'inbox', 'warn', 'parcel_order?status=0', 'orders.view'),
+            $tile('Running', $data['running'], 'truck', 'sky', 'parcel_order?status=1', 'orders.view'),
+            $tile('Delivered', $data['complete'], 'check-circle', 'leaf', 'parcel_order?status=2', 'orders.view'),
+            $tile('Cancelled', $data['cancel'], 'x-circle', 'danger', 'parcel_order?status=3', 'orders.view'),
+            $tile('Expired', $data['expired'], 'clock', 'ink', 'parcel_order?status=4', 'orders.view'),
+        ],
+        'Trips' => [
+            $tile('Past', $data['past'], 'rotate-ccw', 'ink'),
+            $tile('Upcoming', $data['upcoming'], 'calendar', 'sky', 'trips/one-time', 'trips.view'),
+            $tile('Frequent routes', $data['frequent'], 'repeat', 'leaf', 'trips/frequent', 'trips.view'),
+        ],
+    ];
+@endphp
+
 @section('content')
-<style type="text/css">
-.card
-{
-	padding: 10px 10px;
-}
-</style>
-<section id="dashboard-ecommerce">
+<x-admin.page-header title="Welcome back, {{ auth()->user()->name ?: auth()->user()->username }}" subtitle="Here is what is happening on CarryOn today." />
 
-<h1><i class="fa fa-home fa-5" style="color:#10163a !important"></i> CarryOn Dashboard</h1>
-<br>
-
-<div class="row">
-    <div class="col-lg-3 col-sm-6 col-6">
-        <a href="{{ Asset('users') }}" style="text-decoration: none; color: inherit; display: block;">
-            <div class="card">
-                <div class="card-header d-flex flex-column align-items-start pb-0">
-                    <div class="avatar bg-rgba-success p-50 m-0">
-                        <div class="avatar-content">
-                        <i class="fa fa-user fa-5" style="color:black !important;font-size: 20px"></i>
-                        </div>
-                    </div>
-                    <p class="mb-0 mt-1">Users</p>
-                    <h2 class="text-bold-700">{{ $data['user'] }}</h2>
-                </div>
-                <div class="card-content">
-                    <div id="line-area-chart-2"></div>
-                </div>
-            </div>
-        </a>
+@foreach($sections as $heading => $tiles)
+    <h5 class="text-muted text-uppercase mb-1" style="font-size:12px;font-weight:700;letter-spacing:.08em">{{ $heading }}</h5>
+    <div class="co-stats">
+        @foreach($tiles as $t)
+            @php $link = $t['url'] && $t['ability'] && auth()->user()->can($t['ability']); @endphp
+            <{{ $link ? 'a' : 'div' }} class="co-stat" @if($link) href="{{ Asset($t['url']) }}" @endif>
+                <span class="co-stat-icon is-{{ $t['tone'] }}"><i class="feather icon-{{ $t['icon'] }}"></i></span>
+                <span>
+                    <span class="co-stat-value d-block">{{ number_format((float) $t['value']) }}</span>
+                    <span class="co-stat-label d-block">{{ $t['label'] }}</span>
+                </span>
+            </{{ $link ? 'a' : 'div' }}>
+        @endforeach
     </div>
-    <div class="col-lg-3 col-sm-6 col-6">
-        <a href="{{ Asset('users') }}" style="text-decoration: none; color: inherit; display: block;">
-            <div class="card">
-                <div class="card-header d-flex flex-column align-items-start pb-0">
-                    <div class="avatar bg-rgba-success p-50 m-0">
-                        <div class="avatar-content">
-                        <i class="fa fa-user fa-5" style="color:black !important;font-size: 20px"></i>
-                        </div>
-                    </div>
-                    <p class="mb-0 mt-1">Carriers</p>
-                    <h2 class="text-bold-700">{{ $data['carriers'] }}</h2>
-                </div>
-                <div class="card-content">
-                    <div id="line-area-chart-2"></div>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-lg-3 col-sm-6 col-6">
-        <a href="{{ Asset('trips') }}" style="text-decoration: none; color: inherit; display: block;">
-            <div class="card">
-                <div class="card-header d-flex flex-column align-items-start pb-0">
-                    <div class="avatar bg-rgba-primary p-50 m-0">
-                        <div class="avatar-content">
-                        <i class="fa fa-plane fa-5" style="color:black !important;font-size: 20px"></i>
-                        </div>
-                    </div>
-                    <p class="mb-0 mt-1">Trips</p>
-                    <h2 class="text-bold-700">{{ $data['trips'] }}</h2>
-                </div>
-                <div class="card-content">
-                    <div id="line-area-chart-1"></div>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-lg-3 col-sm-6 col-6">
-        <a href="{{ Asset('parcel_order?status=all') }}" style="text-decoration: none; color: inherit; display: block;">
-            <div class="card">
-                <div class="card-header d-flex flex-column align-items-start pb-0">
-                    <div class="avatar bg-rgba-danger p-50 m-0">
-                        <div class="avatar-content">
-                        <i class="fa fa-shopping-cart fa-5 text-danger" style="color:black!important; font-size: 20px"></i>
-                        </div>
-                    </div>
-                    <p class="mb-0 mt-1">Packages</p>
-                    <h2 class="text-bold-700">{{ $data['order'] }}</h2>
-                </div>
-                <div class="card-content">
-                    <div id="line-area-chart-3"></div>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-lg-3 col-sm-6 col-6">
-        <a href="{{ Asset('countries') }}" style="text-decoration: none; color: inherit; display: block;">
-            <div class="card">
-                <div class="card-header d-flex flex-column align-items-start pb-0">
-                    <div class="avatar bg-rgba-primary p-50 m-0">
-                        <div class="avatar-content">
-                        <i class="fa fa-map fa-5" style="color:black !important;font-size: 20px"></i>
-                        </div>
-                    </div>
-                    <p class="mb-0 mt-1">Countries</p>
-                    <h2 class="text-bold-700">{{ $data['countries_covered'] }}</h2>
-                </div>
-                <div class="card-content">
-                    <div id="line-area-chart-1"></div>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-lg-3 col-sm-6 col-6">
-        <a href="{{ Asset('cities') }}" style="text-decoration: none; color: inherit; display: block;">
-            <div class="card">
-                <div class="card-header d-flex flex-column align-items-start pb-0">
-                    <div class="avatar bg-rgba-primary p-50 m-0">
-                        <div class="avatar-content">
-                        <i class="fa fa-map fa-5" style="color:black !important;font-size: 20px"></i>
-                        </div>
-                    </div>
-                    <p class="mb-0 mt-1">Cities</p>
-                    <h2 class="text-bold-700">{{ $data['cities_covered'] }}</h2>
-                </div>
-                <div class="card-content">
-                    <div id="line-area-chart-1"></div>
-                </div>
-            </div>
-        </a>
-    </div>
-    
-</div>
+@endforeach
 
-<h3><i class="fa fa-user fa-5" style="color:#10163a !important; margin-top: 20px; margin-bottom: 10px;"></i> Users</h3>
-
-<div class="row">
-
-<div class="col-lg-3 col-sm-6 col-12">
-<div class="card" style="padding:10px 10px;background:rgba(40, 199, 111, 0.15) !important; color:black; margin-bottom: 1rem !important;">
-<p style="margin-top: 7px;font-size: 17px;color: black;">Active <b style="float: right;font-size: 20px; color:black ">{{ $data['active_users'] }}</b></p>
-</div>
-</div>
-
-
-<div class="col-lg-3 col-sm-6 col-12">
-<div class="card" style="padding:10px 10px;background:rgba(40, 199, 111, 0.15) !important; color:black; margin-bottom: 1rem !important;">
-<p style="margin-top: 7px;font-size: 17px;color:black !important;">Inactive <b style="float: right;font-size: 20px; color:black ">{{ $data['inactive_users'] }}</b></p>
-</div>
-</div>
-
-</div>
-
-<h3><i class="fa fa-shopping-cart fa-5" style="color:#10163a !important; margin-top: 20px; margin-bottom: 10px;"></i> Packages</h3>
-
-<div class="row">
-
-<div class="col-lg-3 col-sm-6 col-12">
-<a href="{{ Asset('parcel_order?status=0') }}" style="text-decoration: none; color: inherit; display: block;">
-<div class="card" style="padding:10px 10px; background: rgba(234, 84, 85, 0.15) !important; color:black; margin-bottom: 1rem !important;">
-<p style="margin-top: 7px;font-size: 17px;color: black;">Unassigned <b style="float: right;font-size: 20px; color:black">{{ $data['unassign'] }}</b></p>
-</div>
-</a>
-</div>
-
-
-<div class="col-lg-3 col-sm-6 col-12">
-<a href="{{ Asset('parcel_order?status=1') }}" style="text-decoration: none; color: inherit; display: block;">
-<div class="card" style="padding:10px 10px;background: rgba(234, 84, 85, 0.15) !important; color:black; margin-bottom: 1rem !important;">
-<p style="margin-top: 7px;font-size: 17px;color:black !important;">Running <b style="float: right;font-size: 20px; color:black">{{ $data['running'] }}</b></p>
-</div>
-</a>
-</div>
-
-
-<div class="col-lg-3 col-sm-6 col-12">
-<a href="{{ Asset('parcel_order?status=2') }}" style="text-decoration: none; color: inherit; display: block;">
-<div class="card" style="padding:10px 10px;background: rgba(234, 84, 85, 0.15) !important; color:black; margin-bottom: 1rem !important;">
-<p style="margin-top: 7px;font-size: 17px;color: black;">Delivered <b style="float: right;font-size: 20px; color:black">{{ $data['complete'] }}</b></p>
-</div>
-</a>
-</div>
-
-
-<div class="col-lg-3 col-sm-6 col-12">
-<a href="{{ Asset('parcel_order?status=3') }}" style="text-decoration: none; color: inherit; display: block;">
-<div class="card" style="padding:10px 10px;background: rgba(234, 84, 85, 0.15) !important; color:black; margin-bottom: 1rem !important;">
-<p style="margin-top: 7px;font-size: 17px;color: black;">Cancelled <b style="float: right;font-size: 20px; color:black">{{ $data['cancel'] }}</b></p>
-</div>
-</a>
-</div>
-
-<div class="col-lg-3 col-sm-6 col-12">
-<a href="{{ Asset('parcel_order?status=4') }}" style="text-decoration: none; color: inherit; display: block;">
-<div class="card" style="padding:10px 10px;background: rgba(234, 84, 85, 0.15) !important; color:black; margin-bottom: 1rem !important;">
-<p style="margin-top: 7px;font-size: 17px;color: black;">Expired <b style="float: right;font-size: 20px; color:black">{{ $data['expired'] }}</b></p>
-</div>
-</a>
-</div>
-
-</div>
-
-
-<h3><i class="fa fa-plane fa-5" style="color:#10163a !important; margin-top: 20px; margin-bottom: 10px;"></i> Trips</h3>
-
-<div class="row">
-
-<div class="col-lg-3 col-sm-6 col-12">
-<div class="card" style="padding:10px 10px;background:rgba(115, 103, 240, 0.15) !important; color:black; margin-bottom: 1rem !important;">
-<p style="margin-top: 7px;font-size: 17px;color: black;">Past <b style="float: right;font-size: 20px; color:black ">{{ $data['past'] }}</b></p>
-</div>
-</div>
-
-
-<div class="col-lg-3 col-sm-6 col-12">
-<div class="card" style="padding:10px 10px;background:rgba(115, 103, 240, 0.15)!important; color:black; margin-bottom: 1rem !important;">
-<p style="margin-top: 7px;font-size: 17px;color:black !important;">Upcoming <b style="float: right;font-size: 20px; color:black ">{{ $data['upcoming'] }}</b></p>
-</div>
-</div>
-
-<div class="col-lg-3 col-sm-6 col-12">
-<div class="card" style="padding:10px 10px;background:rgba(115, 103, 240, 0.15)!important; color:black; margin-bottom: 1rem !important;">
-<p style="margin-top: 7px;font-size: 17px;color:black !important;">Frequent Routes <b style="float: right;font-size: 20px; color:black ">{{ $data['frequent'] }}</b></p>
-</div>
-</div>
-
-</div>
-
-
-
-{{-- Users Evolution Card (Daily bars + Cumulative line) --}}
-<div class="row" style="margin-top: 20px;">
-  <div class="col-12">
-    <div class="card">
-      <div class="card-header d-flex flex-column align-items-center justify-content-between pb-0" style="gap:10px">
+{{-- Users evolution: daily new users (bars) and cumulative (line) --}}
+<div class="card">
+    <div class="co-toolbar justify-content-between">
         <div>
-          <h4 class="mb-0 text-center">Users Evolution</h4>
-          <small class="text-muted text-center">Daily new users (bars) & cumulative (line)</small>
+            <h4 class="card-title">Users evolution</h4>
+            <small class="text-muted">Daily new users (bars) and cumulative total (line)</small>
         </div>
-        <div class="d-flex align-items-center flex-wrap flex-md-nowrap" style="gap:8px; width: 80%;">
-          <input type="date" id="usersFrom" class="form-control" style="min-width: 160px;">
-          <input type="date" id="usersTo" class="form-control" style="min-width: 160px;">
-          <button id="usersApply" class="btn btn-primary w-50">Apply</button>
+        <div class="d-flex align-items-center flex-wrap" style="gap:8px">
+            <input type="date" id="usersFrom" class="form-control" style="width:auto">
+            <span class="text-muted">to</span>
+            <input type="date" id="usersTo" class="form-control" style="width:auto">
+            <button id="usersApply" class="btn btn-primary">Apply</button>
         </div>
-      </div>
-      <div class="card-content">
-        <div class="card-body">
-          <canvas id="users-evolution-chart" height="300"></canvas>
-        </div>
-      </div>
     </div>
-  </div>
+    <div class="card-body">
+        <div style="position:relative;height:320px">
+            <canvas id="users-evolution-chart"></canvas>
+        </div>
+    </div>
 </div>
+@endsection
 
-{{-- Chart.js (load once) --}}
+@section('js')
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
 <script>
 (function(){
   const elFrom = document.getElementById('usersFrom');
   const elTo   = document.getElementById('usersTo');
   const btn    = document.getElementById('usersApply');
   const ctx    = document.getElementById('users-evolution-chart').getContext('2d');
+  const brand  = { ink: '#1B1F26', leaf: '#0FA36B', sky: '#3AB0BA', muted: '#7C8593', grid: '#E8EAEE' };
   let chart;
+
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.color = brand.muted;
 
   // Default range: last 30 days
   const today = new Date();
@@ -264,90 +97,50 @@
   elFrom.value = toISO(new Date(today.getTime() - 29*24*60*60*1000));
 
   async function loadData() {
-    const from = elFrom.value;
-    const to   = elTo.value;
-    const url = `{{ route('analytics.users.evolution') }}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    const url = `{{ route('analytics.users.evolution') }}?from=${encodeURIComponent(elFrom.value)}&to=${encodeURIComponent(elTo.value)}`;
     const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }});
-    if (!res.ok) { alert('Failed to load users evolution data.'); return null; }
+    if (!res.ok) { Swal.fire({ type: 'error', title: 'Could not load the users chart.' }); return null; }
     return res.json();
   }
 
   function render(data){
-    const datasets = [
-      // Bars: Daily New Users on left axis (y)
-      {
-        label: 'Daily New Users',
-        type: 'bar',
-        data: data.series.daily,
-        yAxisID: 'y',
-        backgroundColor: 'rgba(54, 162, 235, 0.6)',
-        borderWidth: 0,
-        // optional: widen bars a bit
-        barPercentage: 0.9,
-        categoryPercentage: 0.9
-      },
-      // Line: Cumulative Users on right axis (y1)
-      {
-        label: 'Cumulative Users',
-        type: 'line',
-        data: data.series.cumulative,
-        yAxisID: 'y1',
-        borderColor: 'rgba(255, 99, 132, 0.9)',
-        borderWidth: 2,
-        fill: false,
-        tension: 0.25,
-        pointRadius: 0
-      }
-    ];
-
     if (chart) chart.destroy();
     chart = new Chart(ctx, {
       type: 'bar',
-      data: { labels: data.labels, datasets },
+      data: {
+        labels: data.labels,
+        datasets: [
+          {
+            label: 'Daily new users', type: 'bar', data: data.series.daily, yAxisID: 'y',
+            backgroundColor: 'rgba(15, 163, 107, .75)', hoverBackgroundColor: brand.leaf,
+            borderRadius: 6, borderSkipped: false, barPercentage: .8, categoryPercentage: .9
+          },
+          {
+            label: 'Cumulative users', type: 'line', data: data.series.cumulative, yAxisID: 'y1',
+            borderColor: brand.ink, backgroundColor: brand.ink, borderWidth: 2.5,
+            fill: false, tension: .3, pointRadius: 0, pointHoverRadius: 4
+          }
+        ]
+      },
       options: {
         responsive: true,
-        interaction: { mode: 'index', intersect: false },
         maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         scales: {
-          // Left axis for daily bars
-          y: {
-            beginAtZero: true,
-            title: { display: true, text: 'Daily New Users' }
-          },
-          // Right axis for cumulative line
-          y1: {
-            beginAtZero: true,
-            position: 'right',
-            grid: { drawOnChartArea: false }, // don’t overlay grids
-            title: { display: true, text: 'Cumulative Users' }
-          },
-          x: {
-            ticks: { maxRotation: 0, autoSkip: true }
-          }
+          y:  { beginAtZero: true, grid: { color: brand.grid }, border: { display: false }, title: { display: true, text: 'Daily' } },
+          y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, border: { display: false }, title: { display: true, text: 'Cumulative' } },
+          x:  { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } }
         },
         plugins: {
-          legend: { position: 'bottom' },
-          tooltip: {
-            callbacks: {
-              title: items => items?.[0]?.label ?? ''
-            }
-          }
+          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } },
+          tooltip: { backgroundColor: brand.ink, padding: 10, cornerRadius: 10, callbacks: { title: items => items?.[0]?.label ?? '' } }
         }
       }
     });
   }
 
-  btn.addEventListener('click', async () => {
-    const data = await loadData();
-    if (data) render(data);
-  });
-
-  // Initial render
+  btn.addEventListener('click', async () => { const d = await loadData(); if (d) render(d); });
   loadData().then(d => d && render(d));
 })();
 </script>
-
-
-
 @endsection
-

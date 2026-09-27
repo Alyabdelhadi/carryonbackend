@@ -3,23 +3,23 @@
 @section('title') Add New City @endsection
 
 @section('content')
+<x-admin.page-header title="Add New City" subtitle="Name, Arabic name, country and image.">
+    <a href="{{ Asset('cities') }}" class="btn btn-light co-btn-icon-text"><i class="feather icon-arrow-left"></i> Back</a>
+</x-admin.page-header>
 
-<section id="basic-input">
 <div class="row">
-<div class="col-md-8">
+<div class="col-xl-9">
 <div class="card">
 <div class="card-header">
-<h4 class="card-title">Add New City</h4>
+<h4 class="card-title">City details</h4>
 </div>
 
 {!! Form::model($data, ['url' => [$form_url],'files' => true]) !!}
 
-@include('cties.form')
+@include('cities.form')
 
 </form>
 </div>
 </div>
 </div>
-</section>
-
 @endsection

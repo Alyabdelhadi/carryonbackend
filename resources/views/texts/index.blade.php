@@ -3,23 +3,14 @@
 @section('title') App Texts @endsection
 
 @section('content')
+<x-admin.page-header title="App Texts" subtitle="Every label and message the app shows. Changes reach the app the next time it loads its texts.">
+</x-admin.page-header>
 
-<section id="basic-input">
-<div class="row">
-<div class="col-md-12">
 <div class="card">
-<div class="card-header">
-<h4 class="card-title">App Texts</h4>
-</div>
-
 {!! Form::open(['url' => [Asset('texts')],'files' => true]) !!}
 
 @include('texts.form')
 
 </form>
 </div>
-</div>
-</div>
-</section>
-
 @endsection

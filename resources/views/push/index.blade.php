@@ -3,43 +3,34 @@
 @section('title') Push Notifications @endsection
 
 @section('content')
+<x-admin.page-header title="Push notification" subtitle="Sends a message to every app user subscribed to the CarryOn topic." />
 
-<section id="basic-input">
 <div class="row">
-<div class="col-md-8">
-<div class="card">
-<div class="card-header">
-<h4 class="card-title">Push Notifications</h4>
+    <div class="col-lg-8">
+        @can('push.create')
+            {!! Form::open(['url' => [Asset('send')],'files' => true,'method' => 'POST']) !!}
+            <div class="card">
+                <div class="card-header"><h4 class="card-title">New message</h4></div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label for="code">Title</label>
+                        {!! Form::text('title',null,['id' => 'code','class' => 'form-control','required'])!!}
+                    </div>
+                    <div class="form-group mb-0">
+                        <label for="push-text">Message</label>
+                        <textarea id="push-text" name="text" class="form-control" rows="4" required="required"></textarea>
+                    </div>
+                </div>
+                <div class="card-footer d-flex justify-content-end">
+                    <button type="submit" class="btn btn-primary co-btn-icon-text"><i class="feather icon-send"></i> Send to everyone</button>
+                </div>
+            </div>
+            </form>
+        @else
+            <div class="card">
+                <x-admin.empty icon="lock" title="Sending is not allowed" message="Your group can view this page but cannot send push notifications." />
+            </div>
+        @endcan
+    </div>
 </div>
-
-{!! Form::open(['url' => [Asset('send')],'files' => true,'method' => 'POST']) !!}
-
-<div class="card-content">
-<div class="card-body">
-
-<div class="form-row">
-<div class="form-group col-md-12">
-<label for="inputEmail6">Title</label>
-{!! Form::text('title',null,['id' => 'code','class' => 'form-control','required'])!!}
-</div>
-
-<div class="form-group col-md-12">
-<label for="inputEmail6">Description</label>
-<textarea name="text" class="form-control" required="required"></textarea>
-</div>
-</div>
-
-
-<button type="submit" class="btn btn-primary mr-1 mb-1 waves-effect waves-light">Send</button>
-
-
-</div>
-</div>
-
-</form>
-</div>
-</div>
-</div>
-</section>
-
 @endsection

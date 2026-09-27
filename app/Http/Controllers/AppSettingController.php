@@ -13,6 +13,8 @@ class AppSettingController extends Controller
         $page = 'app-settings';
         $definitions = AppSetting::definitions();
         $values = AppSetting::allBools();
+        $choiceDefinitions = AppSetting::choiceDefinitions();
+        $choiceValues = AppSetting::allChoices();
         $statDefinitions = AppSetting::statDefinitions();
         $statValues = [];
         foreach ($statDefinitions as $key => $definition) {
@@ -26,7 +28,7 @@ class AppSettingController extends Controller
         $stripeEnabled = \App\Services\StripePaymentService::isEnabled();
 
         return view('settings.app', compact(
-            'definitions', 'values', 'page', 'statDefinitions', 'statValues', 'statComputed',
+            'definitions', 'values', 'choiceDefinitions', 'choiceValues', 'page', 'statDefinitions', 'statValues', 'statComputed',
             'numberDefinitions', 'numberValues', 'payoutMethodsRaw', 'stripeEnabled'
         ));
     }
@@ -36,6 +38,9 @@ class AppSettingController extends Controller
     {
         foreach (AppSetting::definitions() as $key => $definition) {
             AppSetting::setBool($key, $request->boolean($key));
+        }
+        foreach (AppSetting::choiceDefinitions() as $key => $definition) {
+            AppSetting::setChoice($key, $request->input($key));
         }
         foreach (AppSetting::statDefinitions() as $key => $definition) {
             AppSetting::setNullableInt($key, $request->input($key));
@@ -56,9 +61,15 @@ class AppSettingController extends Controller
     /** API: what the mobile app needs to know. */
     public function api()
     {
+        $method = AppSetting::getChoice(AppSetting::IDENTITY_METHOD);
         return response()->json(array_merge(
             AppSetting::allBools(),
-            ['payments' => WalletApiController::rules()]
+            [
+                'identity_method' => $method,
+                // app builds from before identity_method: live page vs photo upload
+                'shufti_live' => $method === AppSetting::IDENTITY_SHUFTI,
+                'payments' => WalletApiController::rules(),
+            ]
         ));
     }
 

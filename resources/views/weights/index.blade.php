@@ -3,81 +3,42 @@
 @section('title') Weights @endsection
 
 @section('content')
+<x-admin.page-header title="Weights" subtitle="Package weights offered in the order form and the calculator.">
+    <x-admin.add-button module="weights" :href="Asset($link.'add')" />
+</x-admin.page-header>
 
-<section id="basic-input">
-<div class="row">
-<div class="col-md-12">
 <div class="card">
-
-<div class="row" id="table-head">
-<div class="col-12">
-<div class="card">
-<div class="card-content">
-
-<div class="card-body"><h4 class="card-title">Weights<a href="{{ Asset($link.'add') }}" class="btn btn-primary" style="float: right">Add New</a></h4> </div>
-<div class="table-responsive">
-<table class="table mb-0">
-<thead >
-<tr>
-<th>Sort No</th>
-<th>Weight (kg)</th>
-<th>Order form</th>
-<th>Calculator</th>
-<th>Status</th>
-<th class="text-right">Options</th>
-</tr>
-</thead>
-<tbody>
-
-@foreach($data as $row)
-<tr>
-<td width="10%">{{ $row->sort_no }}</td>
-<td width="17%">{{ $row->value }} kg</td>
-<td>{{ $row->in_order_form ? 'Yes' : '—' }}</td>
-<td>{{ $row->in_calculator ? 'Yes' : '—' }}</td>
-<td width="17%">
-
-<a onclick="return confirm('Are you sure?')" href="{{ Asset('weightStatus?id='.$row->id) }}">
-@if($row->status == 1)
-
-<div class="chip chip-success mr-1">
-<div class="chip-body">
-<span class="chip-text">Active</span>
+    @if(count($data) === 0)
+        <x-admin.empty icon="bar-chart-2" title="No weights yet" />
+    @else
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Sort No</th>
+                    <th>Weight (kg)</th>
+                    <th>Order form</th>
+                    <th>Calculator</th>
+                    <th>Status</th>
+                    <th class="text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach($data as $row)
+                <tr>
+                    <td class="text-muted">{{ $row->sort_no }}</td>
+                    <td><strong>{{ $row->value }} kg</strong></td>
+                    <td>@if($row->in_order_form) <span class="badge badge-success">Yes</span> @else <span class="text-muted">—</span> @endif</td>
+                    <td>@if($row->in_calculator) <span class="badge badge-success">Yes</span> @else <span class="text-muted">—</span> @endif</td>
+                    <td><x-admin.status-toggle module="weights" :url="Asset('weightStatus?id='.$row->id)" :active="$row->status == 1" /></td>
+                    <td class="text-right">
+                        <x-admin.row-actions module="weights" :edit="Asset($link.$row->id.'/edit')" :delete="Asset($link.'delete/'.$row->id)" />
+                    </td>
+                </tr>
+            @endforeach
+            </tbody>
+        </table>
+    </div>
+    @endif
 </div>
-</div>
-
-@else
-
-<div class="chip chip-danger mr-1">
-<div class="chip-body">
-<span class="chip-text">Inactive</span>
-</div>
-</div>
-
-@endif
-</a>
-
-</td>
-<td width="17%" class="text-right">
-
-<a class="btn btn-icon btn-info mr-1 mb-1 waves-effect waves-light" data-toggle="tooltip" data-placement="top" data-original-title="@lang('app.edit')" href="{{ Asset($link.$row->id.'/edit') }}"><i class="feather icon-edit"></i></a>
-
-<a type="button" class="btn btn-icon btn-danger mr-1 mb-1 waves-effect waves-light" data-toggle="tooltip" data-placement="top" data-original-title="@lang('app.delete')" onclick="confirmAlert('{{ Asset($link.'delete/'.$row->id) }}')"><i class="feather icon-trash-2"></i></a>
-
-</td>
-</tr>
-@endforeach
-
-</tbody>
-</table>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</section>
-
 @endsection

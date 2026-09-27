@@ -6,8 +6,8 @@ use App\Models\AppSetting;
 use App\Models\AppUser;
 use App\Models\IdentityVerification;
 use App\Services\FirebaseService;
+use App\Services\IdentityVerificationService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Middleware\ThrottleRequests;
@@ -17,9 +17,11 @@ use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
- * Server-side Shufti checks. Runs against the local dump-based MySQL
- * (.env.testing, run the 2026_09_26_000000 migration with --path= first);
- * every test is rolled back and Shufti is faked, so no paid request goes out.
+ * Identity verification after signup: Shufti live sessions, manual review
+ * by the admin, and the app.verified gate. Runs against the local
+ * dump-based MySQL (.env.testing, run the 2026_09_26_000000 migration with
+ * --path= first); every test is rolled back and Shufti is faked, so no
+ * paid request goes out.
  */
 class IdentityVerificationTest extends TestCase
 {
@@ -40,7 +42,7 @@ class IdentityVerificationTest extends TestCase
             'services.shufti.base_url' => 'https://shufti.test',
         ]);
         AppSetting::setBool(AppSetting::SHUFTI_ENABLED, true);
-        AppSetting::setBool(AppSetting::SHUFTI_LIVE, false);
+        AppSetting::setChoice(AppSetting::IDENTITY_METHOD, AppSetting::IDENTITY_MANUAL);
     }
 
     protected function tearDown(): void
@@ -79,118 +81,38 @@ class IdentityVerificationTest extends TestCase
         ], $extra))]);
     }
 
-    public function test_signup_with_accepted_check_creates_a_verified_account(): void
+    public function test_signup_runs_no_check_and_leaves_the_account_unverified(): void
     {
-        $this->fakeShufti('verification.accepted');
+        AppSetting::setChoice(AppSetting::IDENTITY_METHOD, AppSetting::IDENTITY_SHUFTI);
+        Http::fake();
 
         $res = $this->post('/api/signup', $this->signupPayload())->assertOk()->json();
 
         $this->assertSame('done', $res['msg']);
-        $this->assertTrue($res['user']['is_verified']);
-        $this->assertSame('verified', $res['user']['identity_status']);
+        $this->assertFalse($res['user']['is_verified']);
+        $this->assertNull($res['user']['identity_status']);
         $this->assertArrayNotHasKey('shufti_reference', $res['user']);
         $this->assertArrayNotHasKey('password', $res['user']);
-
-        $attempt = IdentityVerification::where('app_user_id', $res['user']['id'])->firstOrFail();
-        $this->assertSame('verified', $attempt->status);
-        $this->assertSame('signup', $attempt->source);
-        $this->assertStringNotContainsString('SHOULD NOT BE STORED', json_encode($attempt->result));
-
-        // no callback_url unless SHUFTI_CALLBACK_URL is set (Shufti refuses
-        // unregistered callback domains)
-        Http::assertSent(fn ($request) => $request->hasHeader('Authorization')
-            && !isset($request['callback_url'])
-            && !empty($request['face']['proof'])
-            && !empty($request['document']['proof']));
+        $this->assertFalse(IdentityVerification::where('app_user_id', $res['user']['id'])->exists());
+        Http::assertNothingSent();
     }
 
-    public function test_signup_with_declined_check_creates_no_account(): void
+    public function test_manual_signup_with_both_photos_goes_to_review(): void
     {
-        $this->fakeShufti('verification.declined');
-        $payload = $this->signupPayload();
+        // app builds that still upload the ID at signup
+        Http::fake();
 
-        $res = $this->post('/api/signup', $payload)->assertOk()->json();
-
-        $this->assertSame('error', $res['msg']);
-        $this->assertSame('identity_declined', $res['reason']);
-        $this->assertFalse(AppUser::where('email', $payload['email'])->exists());
-        $attempt = IdentityVerification::latest('id')->first();
-        $this->assertSame('declined', $attempt->status);
-        $this->assertFileDoesNotExist(AppUser::SELFIE_DIR . '/' . $attempt->selfie);
-    }
-
-    public function test_signup_with_unreadable_photos_returns_shufti_detail(): void
-    {
-        Http::fake(['shufti.test/*' => Http::response([
-            'reference' => 'x', 'event' => 'request.invalid',
-            'error' => ['service' => 'document', 'key' => 'proof', 'message' => 'Document proof is blurry'],
-        ], 400)]);
-
-        $res = $this->post('/api/signup', $this->signupPayload())->json();
-
-        $this->assertSame('identity_invalid', $res['reason']);
-        $this->assertSame('Document proof is blurry', $res['detail']);
-    }
-
-    public function test_shufti_setup_errors_are_not_blamed_on_the_photos(): void
-    {
-        Http::fake(['shufti.test/*' => Http::response([
-            'reference' => 'x', 'event' => 'request.invalid',
-            'error' => ['service' => '', 'key' => '', 'message' => 'The given callback domain is not registered in your account.'],
-        ], 400)]);
-        $payload = $this->signupPayload();
-
-        $res = $this->post('/api/signup', $payload)->json();
-
-        $this->assertSame('identity_unavailable', $res['reason']);
-        $this->assertFalse(AppUser::where('email', $payload['email'])->exists());
-        $this->assertSame('failed', IdentityVerification::latest('id')->first()->status);
-    }
-
-    public function test_callback_url_is_sent_when_configured(): void
-    {
-        config(['services.shufti.callback_url' => 'https://carryon.app/admin/api/identity/shufti/callback']);
-        $this->fakeShufti('verification.accepted');
-
-        $this->post('/api/signup', $this->signupPayload());
-
-        Http::assertSent(fn ($request) => ($request['callback_url'] ?? null) === 'https://carryon.app/admin/api/identity/shufti/callback');
-    }
-
-    public function test_signup_when_shufti_is_unreachable_asks_to_retry(): void
-    {
-        Http::fake(fn () => throw new ConnectionException('cURL error 7: Failed to connect'));
-        $payload = $this->signupPayload();
-
-        $res = $this->post('/api/signup', $payload)->json();
-
-        $this->assertSame('identity_unavailable', $res['reason']);
-        $this->assertFalse(AppUser::where('email', $payload['email'])->exists());
-    }
-
-    public function test_pending_signup_is_resolved_by_the_callback(): void
-    {
-        $this->fakeShufti('request.pending');
         $res = $this->post('/api/signup', $this->signupPayload())->json();
 
         $this->assertSame('done', $res['msg']);
-        $this->assertFalse($res['user']['is_verified']);
         $this->assertSame('pending', $res['user']['identity_status']);
-        $user = AppUser::find($res['user']['id']);
-
-        // the callback body is ignored apart from the reference; the
-        // verdict comes from Shufti's status endpoint
-        $this->fakeShufti('verification.accepted');
-        $this->post('/api/identity/shufti/callback', [
-            'reference' => $user->shufti_reference,
-            'event' => 'verification.declined',
-        ])->assertOk();
-
-        $this->assertTrue($user->fresh()->is_verified);
-        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/status'));
+        $attempt = IdentityVerification::where('app_user_id', $res['user']['id'])->firstOrFail();
+        $this->assertSame('manual', $attempt->source);
+        $this->assertSame('pending', $attempt->status);
+        Http::assertNothingSent();
     }
 
-    public function test_signup_without_shufti_creates_an_unverified_account(): void
+    public function test_signup_without_a_verification_requirement_creates_an_unverified_account(): void
     {
         AppSetting::setBool(AppSetting::SHUFTI_ENABLED, false);
         Http::fake();
@@ -201,6 +123,90 @@ class IdentityVerificationTest extends TestCase
         $this->assertFalse($res['user']['is_verified']);
         $this->assertNull($res['user']['identity_status']);
         Http::assertNothingSent();
+    }
+
+    public function test_unverified_accounts_cannot_send_carry_or_add_trips(): void
+    {
+        $user = $this->existingAccount();
+        Sanctum::actingAs($user, ['app']);
+
+        foreach ([
+            ['/api/createParcelOrder', ['user_id' => $user->id]],
+            ['/api/assignParcelOrder', ['user_id' => $user->id, 'order_id' => 0]],
+            ['/api/trips', ['carrier_id' => $user->id]],
+        ] as [$url, $body]) {
+            $res = $this->post($url, $body)->json();
+            $this->assertSame('identity_required', $res['reason'] ?? null, $url);
+        }
+
+        // switched off by the admin: nobody is blocked
+        AppSetting::setBool(AppSetting::SHUFTI_ENABLED, false);
+        $res = $this->post('/api/assignParcelOrder', ['user_id' => $user->id, 'order_id' => 0])->json();
+        $this->assertNotSame('identity_required', $res['reason'] ?? null);
+
+        AppSetting::setBool(AppSetting::SHUFTI_ENABLED, true);
+        app(IdentityVerificationService::class)->review($user, true);
+        $res = $this->post('/api/assignParcelOrder', ['user_id' => $user->id, 'order_id' => 0])->json();
+        $this->assertNotSame('identity_required', $res['reason'] ?? null);
+    }
+
+    public function test_manual_review_approve_and_reject(): void
+    {
+        Http::fake();
+        $user = $this->existingAccount();
+        Sanctum::actingAs($user, ['app']);
+
+        $res = $this->post('/api/identity/verify', ['user_id' => $user->id])->json();
+        $this->assertSame('error', $res['msg']);
+
+        $res = $this->post('/api/identity/verify', [
+            'user_id' => $user->id,
+            'selfie' => UploadedFile::fake()->image('s.jpg'),
+            'identity' => UploadedFile::fake()->image('i.jpg', 1600, 1000),
+        ])->json();
+        $this->assertSame('done', $res['msg']);
+        $this->assertSame('pending', $res['user']['identity_status']);
+        $user->refresh();
+        $this->assertNotNull($user->selfie);
+        $this->assertFileExists(AppUser::IDENTITY_DIR . '/' . $user->identity);
+
+        // the status check and the sync command leave manual reviews alone
+        $res = $this->get('/api/identity/status?user_id=' . $user->id)->json();
+        $this->assertSame('pending', $res['user']['identity_status']);
+        $this->artisan('identity:sync-pending')->assertSuccessful();
+        $this->assertSame('pending', $user->fresh()->identity_status);
+        Http::assertNothingSent();
+
+        app(IdentityVerificationService::class)->review($user->fresh(), false);
+        $this->assertSame('declined', $user->fresh()->identity_status);
+        $this->assertSame('declined', IdentityVerification::where('reference', $user->fresh()->shufti_reference)->value('status'));
+
+        // new photos, approved this time
+        $this->post('/api/identity/verify', [
+            'user_id' => $user->id,
+            'selfie' => UploadedFile::fake()->image('s.jpg'),
+            'identity' => UploadedFile::fake()->image('i.jpg'),
+        ])->assertOk();
+        app(IdentityVerificationService::class)->review($user->fresh(), true);
+        $this->assertTrue($user->fresh()->is_verified);
+
+        // a stale declined verdict arriving later does not undo it
+        $old = IdentityVerification::where('app_user_id', $user->id)->where('status', 'declined')->first();
+        app(IdentityVerificationService::class)->applyToUser($user->fresh(), $old);
+        $this->assertTrue($user->fresh()->is_verified);
+    }
+
+    public function test_app_settings_expose_the_method(): void
+    {
+        AppSetting::setChoice(AppSetting::IDENTITY_METHOD, AppSetting::IDENTITY_SHUFTI);
+        $res = $this->get('/api/appSettings')->json();
+        $this->assertSame('shufti', $res['identity_method']);
+        $this->assertTrue($res['shufti_live']);
+
+        AppSetting::setChoice(AppSetting::IDENTITY_METHOD, AppSetting::IDENTITY_MANUAL);
+        $res = $this->get('/api/appSettings')->json();
+        $this->assertSame('manual', $res['identity_method']);
+        $this->assertFalse($res['shufti_live']);
     }
 
     private function existingAccount(): AppUser
@@ -216,9 +222,9 @@ class IdentityVerificationTest extends TestCase
         return $user;
     }
 
-    public function test_live_mode_signup_skips_the_photo_check_and_refuses_photo_verification(): void
+    public function test_live_mode_refuses_photo_verification(): void
     {
-        AppSetting::setBool(AppSetting::SHUFTI_LIVE, true);
+        AppSetting::setChoice(AppSetting::IDENTITY_METHOD, AppSetting::IDENTITY_SHUFTI);
         Http::fake();
 
         $res = $this->post('/api/signup', $this->signupPayload())->json();
@@ -239,7 +245,7 @@ class IdentityVerificationTest extends TestCase
 
     public function test_live_session_goes_from_unsubmitted_to_review_to_verified(): void
     {
-        AppSetting::setBool(AppSetting::SHUFTI_LIVE, true);
+        AppSetting::setChoice(AppSetting::IDENTITY_METHOD, AppSetting::IDENTITY_SHUFTI);
         $user = $this->existingAccount();
         Sanctum::actingAs($user, ['app']);
 
@@ -276,7 +282,7 @@ class IdentityVerificationTest extends TestCase
 
     public function test_expired_unfinished_live_session_keeps_the_users_status(): void
     {
-        AppSetting::setBool(AppSetting::SHUFTI_LIVE, true);
+        AppSetting::setChoice(AppSetting::IDENTITY_METHOD, AppSetting::IDENTITY_SHUFTI);
         $user = $this->existingAccount();
         $user->identity_status = 'declined';
         $user->save();
@@ -294,7 +300,7 @@ class IdentityVerificationTest extends TestCase
 
     public function test_live_session_that_cannot_start_asks_to_retry(): void
     {
-        AppSetting::setBool(AppSetting::SHUFTI_LIVE, true);
+        AppSetting::setChoice(AppSetting::IDENTITY_METHOD, AppSetting::IDENTITY_SHUFTI);
         $user = $this->existingAccount();
         Sanctum::actingAs($user, ['app']);
 
@@ -305,49 +311,24 @@ class IdentityVerificationTest extends TestCase
         $this->assertNull($user->fresh()->shufti_reference);
     }
 
-    public function test_existing_account_can_verify_and_is_not_downgraded(): void
+    public function test_callback_url_is_sent_when_configured(): void
     {
-        $user = new AppUser();
-        $user->name = 'Old Account';
-        $user->email = $this->emails[] = 'old' . uniqid() . '@example.test';
-        $user->phone = '00961' . random_int(10000000, 99999999);
-        $user->password = 'secret';
-        $user->role = 1;
-        $user->status = 1;
-        $user->save();
-        $this->assertFalse($user->is_verified);
+        AppSetting::setChoice(AppSetting::IDENTITY_METHOD, AppSetting::IDENTITY_SHUFTI);
+        config(['services.shufti.callback_url' => 'https://carryon.app/admin/api/identity/shufti/callback']);
+        $user = $this->existingAccount();
         Sanctum::actingAs($user, ['app']);
+        $this->fakeShufti('request.pending', ['verification_url' => 'https://app.shuftipro.com/verification/abc']);
 
-        $this->fakeShufti('verification.declined');
-        $res = $this->post('/api/identity/verify', [
-            'user_id' => $user->id,
-            'selfie' => UploadedFile::fake()->image('s.jpg'),
-            'identity' => UploadedFile::fake()->image('i.jpg'),
-        ])->json();
-        $this->assertSame('identity_declined', $res['reason']);
-        $this->assertSame('declined', $user->fresh()->identity_status);
+        $this->post('/api/identity/live', ['user_id' => $user->id])->assertOk();
 
-        $this->fakeShufti('verification.accepted');
-        $res = $this->post('/api/identity/verify', [
-            'user_id' => $user->id,
-            'selfie' => UploadedFile::fake()->image('s.jpg'),
-            'identity' => UploadedFile::fake()->image('i.jpg'),
-        ])->json();
-        $this->assertSame('done', $res['msg']);
-        $this->assertTrue($res['user']['is_verified']);
-        $this->assertNotNull($user->fresh()->selfie);
-
-        // a stale declined verdict arriving later does not undo it
-        $old = IdentityVerification::where('app_user_id', $user->id)->where('status', 'declined')->first();
-        app(\App\Services\IdentityVerificationService::class)->applyToUser($user->fresh(), $old);
-        $this->assertTrue($user->fresh()->is_verified);
+        Http::assertSent(fn ($request) => ($request['callback_url'] ?? null) === 'https://carryon.app/admin/api/identity/shufti/callback');
     }
 
     public function test_login_exposes_is_verified(): void
     {
-        $this->fakeShufti('verification.accepted');
         $payload = $this->signupPayload();
-        $this->post('/api/signup', $payload);
+        $user = AppUser::findOrFail($this->post('/api/signup', $payload)->json('user.id'));
+        app(IdentityVerificationService::class)->review($user, true);
 
         $login = $this->post('/api/login', ['email' => $payload['email'], 'password' => 'secret'])->json();
         $this->assertTrue($login['user']['is_verified']);

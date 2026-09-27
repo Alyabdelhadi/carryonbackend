@@ -1,25 +1,17 @@
 @extends('layout.main')
 
-@section('title') Add New User @endsection
+@section('title') Add User @endsection
 
 @section('content')
 
-<section id="basic-input">
-<div class="row">
-<div class="col-md-8">
-<div class="card">
-<div class="card-header">
-<h4 class="card-title">Add New User</h4>
-</div>
+<x-admin.page-header title="Add user" subtitle="Create an app account by hand.">
+    <a href="{{ Asset('users') }}" class="btn btn-light co-btn-icon-text"><i class="feather icon-arrow-left"></i> Back</a>
+</x-admin.page-header>
 
 {!! Form::model($data, ['url' => [$form_url],'files' => true]) !!}
 
 @include('users.form')
 
 </form>
-</div>
-</div>
-</div>
-</section>
 
 @endsection

@@ -20,6 +20,7 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'email',
+        'username',
         'password',
     ];
 
@@ -30,8 +31,37 @@ class User extends Authenticatable
 
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'last_login_at' => 'datetime',
+        'is_active' => 'boolean',
         'password' => 'hashed',
     ];
+
+    public function group()
+    {
+        return $this->belongsTo(AdminGroup::class, 'admin_group_id');
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return (bool) $this->group?->is_super;
+    }
+
+    /** Permission check for dashboard pages, see App\Support\AdminModules. */
+    public function canAdmin(string $module, string $action = 'view'): bool
+    {
+        return $this->is_active !== false && (bool) $this->group?->allows($module, $action);
+    }
+
+    /** The first page this admin may open (where login lands). */
+    public function homeUrl(): ?string
+    {
+        foreach (\App\Support\AdminModules::all() as $key => $module) {
+            if ($module['url'] && $this->canAdmin($key, 'view')) {
+                return $module['url'];
+            }
+        }
+        return null;
+    }
 
     public function overview()
     {
@@ -144,8 +174,13 @@ class User extends Authenticatable
         $update->name               = isset($data['name']) ? $data['name'] : null;
         $update->email              = isset($data['email']) ? $data['email'] : null;
         $update->username           = isset($data['username']) ? $data['username'] : null;
-        $update->point_who          = isset($data['point_who']) ? $data['point_who'] : null;
-        $update->point_use          = isset($data['point_use']) ? $data['point_use'] : null;
+        // referral settings: only on the Super Admin form, never cleared
+        if (isset($data['point_who'])) {
+            $update->point_who = $data['point_who'];
+        }
+        if (isset($data['point_use'])) {
+            $update->point_use = $data['point_use'];
+        }
         
         if(isset($data['new_password']))
         {

@@ -51,7 +51,9 @@
     </div>
     </div>
     </div>
-    <button type="submit" class="btn btn-primary mr-1 mb-1 waves-effect waves-light">Save</button>
+    <div class="d-flex justify-content-end border-top pt-2 mt-50">
+    <button type="submit" class="btn btn-primary co-btn-icon-text"><i class="feather icon-check"></i> Save</button>
+    </div>
     
     
     </div>

@@ -45,6 +45,7 @@ class ApiSecurityTest extends TestCase
         $u->password = 'secret123';
         $u->role = 1;
         $u->status = 1;
+        $u->identity_status = AppUser::IDENTITY_VERIFIED; // app.verified gate
         $u->save();
         return $u;
     }
@@ -247,6 +248,7 @@ class ApiSecurityTest extends TestCase
         $_GET['id'] = $this->alice->id;
         $this->get('/userStatus?id=' . $this->alice->id, ['Sec-Fetch-Site' => 'cross-site'])->assertStatus(403);
         $this->assertSame(1, (int) $this->alice->fresh()->status);
+        $this->alice->forceFill(['identity_status' => null])->save();
         $_GET['id'] = $this->alice->id; // the admin controllers read $_GET
         $this->get('/userVerification?id=' . $this->alice->id, ['Sec-Fetch-Site' => 'same-origin'])->assertRedirect();
         $this->assertTrue($this->alice->fresh()->is_verified);

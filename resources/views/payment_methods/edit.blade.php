@@ -4,19 +4,9 @@
 
 @section('content')
 
-<section id="basic-input">
-
-<div class="row">
-
-<div class="col-md-8">
-
-<div class="card">
-
-<div class="card-header">
-    <h4 class="card-title">
-        Configure {{ $data->name }}
-    </h4>
-</div>
+<x-admin.page-header :title="'Configure ' . $data->name" subtitle="Changes apply to new orders in the app right away.">
+    <a href="{{ Asset($link) }}" class="btn btn-light co-btn-icon-text"><i class="feather icon-arrow-left"></i> Back</a>
+</x-admin.page-header>
 
 {!! Form::model(
     $data,
@@ -29,11 +19,5 @@
 @include('payment_methods.form')
 
 </form>
-
-</div>
-</div>
-</div>
-
-</section>
 
 @endsection

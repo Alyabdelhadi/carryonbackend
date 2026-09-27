@@ -9,11 +9,13 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
- * Identity checks for app users. Photo mode: signup and re-verification
- * store the photos first, then call [check]. Live mode (admin switch
- * `shufti_live`): [startLive] opens a Shufti onsite session the app shows
- * in a browser. Either way the Shufti callback, api/identity/status and
- * the identity:sync-pending command resolve checks that were still pending.
+ * Identity checks for app users, never at signup: the account verifies
+ * later, by the method the admin picked (`identity_method`).
+ * Shufti: [startLive] opens a Shufti onsite session the app shows in a
+ * browser; the Shufti callback, api/identity/status and the
+ * identity:sync-pending command resolve it.
+ * Manual: [submitManual] files the uploaded selfie + ID for the admin,
+ * who decides with [review].
  */
 class IdentityVerificationService
 {
@@ -24,17 +26,28 @@ class IdentityVerificationService
     {
     }
 
-    /** The admin switch on /app-settings. */
+    /** The admin switch on /app-settings: accounts must verify to send, receive or carry. */
     public static function enabled(): bool
     {
         return AppSetting::getBool(AppSetting::SHUFTI_ENABLED, true);
     }
 
-    /** Shufti's hosted page (live selfie + ID) instead of uploaded photos. */
+    /** Verification on Shufti's hosted page (live selfie + ID scan). */
     public static function liveMode(): bool
     {
-        return self::enabled() && AppSetting::getBool(AppSetting::SHUFTI_LIVE, false);
+        return self::enabled()
+            && AppSetting::getChoice(AppSetting::IDENTITY_METHOD) === AppSetting::IDENTITY_SHUFTI;
     }
+
+    /** The user uploads a selfie + ID and the admin approves them by hand. */
+    public static function manualMode(): bool
+    {
+        return self::enabled()
+            && AppSetting::getChoice(AppSetting::IDENTITY_METHOD) === AppSetting::IDENTITY_MANUAL;
+    }
+
+    /** `source` of attempts the admin decides; Shufti never sees them. */
+    public const SOURCE_MANUAL = 'manual';
 
     /** Shufti's event for an onsite session the user has not submitted yet. */
     public const EVENT_NOT_SUBMITTED = 'request.pending';
@@ -50,42 +63,56 @@ class IdentityVerificationService
     }
 
     /**
-     * Sends the stored selfie + ID (file names under upload/selfies and
-     * upload/identities) to Shufti and logs the attempt.
+     * Files the stored selfie + ID (file names under upload/selfies and
+     * upload/identities) for the admin to review: they replace the
+     * account's photos, and the user is under review until the decision.
      */
-    public function check(string $source, string $selfie, string $identity, ?string $email, ?int $userId, ?string $ip): IdentityVerification
+    public function submitManual(AppUser $user, string $selfie, string $identity, ?string $ip): IdentityVerification
     {
         $attempt = IdentityVerification::create([
-            'app_user_id' => $userId,
+            'app_user_id' => $user->id,
             'reference' => 'CO_' . now()->format('YmdHis') . '_' . Str::upper(Str::random(10)),
-            'source' => $source,
+            'source' => self::SOURCE_MANUAL,
             'status' => IdentityVerification::PENDING,
             'selfie' => $selfie,
             'identity' => $identity,
             'ip' => $ip,
         ]);
-
-        // Shufti takes ~20 s; keep PHP's execution limit clear of it.
-        @set_time_limit((int) config('services.shufti.timeout', 60) + 60);
-        $started = microtime(true);
-        $response = $this->shufti->verify(
-            $attempt->reference,
-            AppUser::SELFIE_DIR . '/' . $selfie,
-            AppUser::IDENTITY_DIR . '/' . $identity,
-            $email
+        // on the account right away: the Users page shows them to the admin
+        AppUser::discardUploads(
+            $user->selfie !== $selfie ? $user->selfie : null,
+            $user->identity !== $identity ? $user->identity : null
         );
-        $this->record($attempt, $response);
-
-        Log::info('Identity check finished.', [
-            'reference' => $attempt->reference,
-            'user_id' => $userId,
-            'source' => $source,
-            'event' => $attempt->event,
-            'status' => $attempt->status,
-            'seconds' => round(microtime(true) - $started, 1),
-        ]);
-
+        $user->selfie = $selfie;
+        $user->identity = $identity;
+        $this->applyToUser($user, $attempt);
+        Log::info('Identity documents submitted for manual review.', ['reference' => $attempt->reference, 'user_id' => $user->id]);
         return $attempt;
+    }
+
+    /**
+     * The admin's decision. Settles the user's pending manual attempt when
+     * there is one (its photos become the account's), otherwise sets the
+     * status directly, and tells the user.
+     */
+    public function review(AppUser $user, bool $approve): void
+    {
+        $attempt = $user->shufti_reference
+            ? IdentityVerification::where('reference', $user->shufti_reference)
+                ->where('status', IdentityVerification::PENDING)->first()
+            : null;
+
+        if ($attempt) {
+            $attempt->status = $approve ? IdentityVerification::VERIFIED : IdentityVerification::DECLINED;
+            $attempt->event = $approve ? 'admin.approved' : 'admin.declined';
+            $attempt->save();
+            $this->applyToUser($user, $attempt);
+        } else {
+            $user->identity_status = $approve ? AppUser::IDENTITY_VERIFIED : IdentityVerification::DECLINED;
+            $user->identity_verified_at = $approve ? now() : null;
+            $user->save();
+        }
+        $this->notify($user, $approve);
     }
 
     /**
@@ -177,7 +204,8 @@ class IdentityVerificationService
      */
     public function resolve(IdentityVerification $attempt): IdentityVerification
     {
-        if ($attempt->status !== IdentityVerification::PENDING) {
+        // manual attempts wait for the admin, not for Shufti
+        if ($attempt->status !== IdentityVerification::PENDING || $attempt->source === self::SOURCE_MANUAL) {
             return $attempt;
         }
 
@@ -216,7 +244,7 @@ class IdentityVerificationService
         }
 
         $this->applyToUser($user, $attempt);
-        $this->notify($user, $attempt);
+        $this->notify($user, $attempt->status === IdentityVerification::VERIFIED);
         return $attempt;
     }
 
@@ -249,13 +277,14 @@ class IdentityVerificationService
         $attempt->save();
     }
 
-    private function notify(AppUser $user, IdentityVerification $attempt): void
+    private function notify(AppUser $user, bool $verified): void
     {
-        [$title, $body] = $attempt->status === IdentityVerification::VERIFIED
+        [$title, $body] = $verified
             ? ['Account verified', 'Your identity is verified. You can now send, receive and carry packages.']
             : ['Verification failed', 'We could not verify your identity. Please open CarryOn and try again.'];
+        $status = $verified ? IdentityVerification::VERIFIED : ($user->identity_status ?? IdentityVerification::FAILED);
         try {
-            $this->firebase->sendToUser($user->id, $title, $body, ['type' => 'identity', 'status' => $attempt->status]);
+            $this->firebase->sendToUser($user->id, $title, $body, ['type' => 'identity', 'status' => $status]);
         } catch (\Throwable $e) {
             Log::warning('Identity push failed.', ['user_id' => $user->id, 'error' => $e->getMessage()]);
         }
