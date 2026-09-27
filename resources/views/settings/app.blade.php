@@ -20,24 +20,33 @@
                 <div class="card-header"><h4 class="card-title"><i class="feather icon-shield mr-50"></i> Identity verification</h4></div>
                 <div class="card-body">
                     @foreach($definitions as $key => $definition)
-                        <div class="form-group">
-                            <div class="custom-control custom-switch custom-switch-lg">
-                                <input type="checkbox" class="custom-control-input" id="setting-{{ $key }}" name="{{ $key }}" value="1" {{ $values[$key] ? 'checked' : '' }}>
-                                <label class="custom-control-label" for="setting-{{ $key }}"><strong>{{ $definition['label'] }}</strong></label>
-                            </div>
-                            <small class="form-text text-muted">{{ $definition['help'] }}</small>
-                        </div>
+                        <label class="co-setting" for="setting-{{ $key }}">
+                            <span class="co-setting-text">
+                                <strong>{{ $definition['label'] }}</strong>
+                                <small>{{ $definition['help'] }}</small>
+                            </span>
+                            <span class="co-toggle">
+                                <input type="checkbox" id="setting-{{ $key }}" name="{{ $key }}" value="1" {{ $values[$key] ? 'checked' : '' }}>
+                                <span aria-hidden="true"></span>
+                            </span>
+                        </label>
                     @endforeach
 
                     @foreach($choiceDefinitions as $key => $definition)
-                        <div class="form-group mb-0">
-                            <label>{{ $definition['label'] }}</label>
+                        <div class="form-group mb-0 mt-2">
+                            <label class="mb-1">{{ $definition['label'] }}</label>
+                            <div class="co-choices">
                             @foreach($definition['options'] as $option => $optionLabel)
-                                <div class="custom-control custom-radio mb-1">
-                                    <input type="radio" class="custom-control-input" id="setting-{{ $key }}-{{ $option }}" name="{{ $key }}" value="{{ $option }}" {{ $choiceValues[$key] === $option ? 'checked' : '' }}>
-                                    <label class="custom-control-label" for="setting-{{ $key }}-{{ $option }}">{{ $optionLabel }}</label>
-                                </div>
+                                @php [$optionTitle, $optionHelp] = array_pad(explode(': ', $optionLabel, 2), 2, null); @endphp
+                                <label class="co-choice" for="setting-{{ $key }}-{{ $option }}">
+                                    <input type="radio" id="setting-{{ $key }}-{{ $option }}" name="{{ $key }}" value="{{ $option }}" {{ $choiceValues[$key] === $option ? 'checked' : '' }}>
+                                    <span class="co-choice-body">
+                                        <strong>{{ $optionTitle }}</strong>
+                                        @if($optionHelp)<small>{{ ucfirst($optionHelp) }}</small>@endif
+                                    </span>
+                                </label>
                             @endforeach
+                            </div>
                             <small class="form-text text-muted">{{ $definition['help'] }}</small>
                         </div>
                     @endforeach

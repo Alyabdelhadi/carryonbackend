@@ -508,3 +508,67 @@ body.co-body .co-search .form-control { padding-inline-start: 38px; }
     body.co-body .card-body { padding: 16px; }
     .co-toast { inset-inline: 16px; max-width: none; }
 }
+
+/* ---------- Settings rows: title + help on the left, toggle on the right ---------- */
+.co-setting {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 16px 18px;
+    margin: 0 0 12px;
+    border: 1px solid var(--co-border);
+    border-radius: 14px;
+    background: var(--co-surface-2);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+}
+.co-setting:hover { border-color: var(--co-border-strong); }
+.co-setting:has(input:checked) { background: var(--co-leaf-50); border-color: var(--co-leaf-100); }
+.co-setting-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.co-setting-text strong { font-size: 15px; color: var(--co-text); }
+.co-setting-text small { font-size: 13px; line-height: 1.5; color: var(--co-muted); font-weight: 400; }
+
+.co-toggle { position: relative; flex: 0 0 auto; width: 48px; height: 28px; }
+.co-toggle input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+.co-toggle span {
+    position: absolute; inset: 0;
+    border-radius: 999px;
+    background: #cfd4db;
+    transition: background .2s;
+}
+.co-toggle span::after {
+    content: "";
+    position: absolute; top: 3px; inset-inline-start: 3px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+    transition: transform .2s;
+}
+.co-toggle input:checked + span { background: var(--co-leaf); }
+.co-toggle input:checked + span::after { transform: translateX(20px); }
+[dir="rtl"] .co-toggle input:checked + span::after { transform: translateX(-20px); }
+.co-toggle input:focus-visible + span { box-shadow: 0 0 0 3px rgba(15, 163, 107, .3); }
+.co-toggle input:disabled + span { opacity: .5; }
+
+/* ---------- Choice cards (radio options) ---------- */
+.co-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.co-choice {
+    position: relative;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin: 0;
+    padding: 16px;
+    border: 1.5px solid var(--co-border);
+    border-radius: 14px;
+    background: var(--co-surface);
+    cursor: pointer;
+    font-weight: 400 !important;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.co-choice:hover { border-color: var(--co-border-strong); }
+.co-choice input { margin-top: 3px; width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--co-leaf); cursor: pointer; }
+.co-choice-body { display: flex; flex-direction: column; gap: 4px; }
+.co-choice-body strong { font-size: 14px; color: var(--co-text); }
+.co-choice-body small { font-size: 13px; line-height: 1.5; color: var(--co-muted); }
+.co-choice:has(input:checked) { border-color: var(--co-leaf); background: var(--co-leaf-50); box-shadow: 0 0 0 3px rgba(15, 163, 107, .12); }
